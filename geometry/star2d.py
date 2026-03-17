@@ -19,10 +19,21 @@ class Star:
         self.frag_shader = frag_shader
         angles = np.linspace(0, 2*np.pi, 2*points, endpoint=False)
         radii = np.tile([1, 0.5], points)
-        self.vertices = np.column_stack([radii * np.cos(angles), radii * np.sin(angles), np.zeros(2*points)]).astype(np.float32)
-        self.normals = np.tile([0, 0, 1], (2*points, 1)).astype(np.float32)
-        self.colors = np.random.rand(2*points, 3).astype(np.float32)
-        self.indices = np.arange(2*points, dtype=np.uint32)
+
+        center = np.array([[0, 0, 0]], dtype=np.float32)
+
+        outer_vertices = np.column_stack([
+            radii * np.cos(angles),
+            radii * np.sin(angles),
+            np.zeros(2*points)
+        ])
+
+        outer_vertices = np.vstack([outer_vertices, outer_vertices[0]])
+
+        self.vertices = np.vstack([center, outer_vertices]).astype(np.float32)
+
+        self.normals = np.tile([0, 0, 1], (len(self.vertices), 1)).astype(np.float32)
+        self.colors = np.random.rand(len(self.vertices), 3).astype(np.float32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -46,5 +57,5 @@ class Star:
         elif 'phong' in self.vert_shader.lower():
             self.lighting.setup_phong(mode=1)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, 2*5)
+        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, len(self.vertices))
         self.vao.deactivate()
