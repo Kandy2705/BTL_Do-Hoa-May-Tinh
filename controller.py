@@ -36,9 +36,18 @@ class AppController:
 
     def _draw_ui(self) -> None:
         imgui.begin("BTL1: Controls")
-        changed, new_idx = imgui.combo("Select Shape", self.model.selected_idx, self.model.menu_options)
-        if changed:
-            self.model.set_selected(new_idx)
+        
+        changed_cat, new_cat = imgui.combo("Select Category", self.model.selected_category, self.model.category_options)
+        if changed_cat:
+            self.model.set_category(new_cat)
+        
+        changed_shape, new_shape = imgui.combo("Select Shape", self.model.selected_idx, self.model.menu_options)
+        if changed_shape:
+            self.model.set_selected(new_shape)
+        
+        changed_shader, new_shader = imgui.combo("Select Shader", self.model.selected_shader, self.model.shader_names)
+        if changed_shader:
+            self.model.set_shader(new_shader)
 
         imgui.text("Dung chuot trai de xoay, cuon de zoom")
         imgui.end()
