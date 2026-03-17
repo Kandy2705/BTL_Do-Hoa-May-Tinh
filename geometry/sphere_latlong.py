@@ -1,11 +1,8 @@
-"""Sphere using latitude-longitude coordinates for rendering in the BTL project."""
-
 import numpy as np
 import OpenGL.GL as GL
 import sys
 import os
 
-# Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from libs.shader import Shader
@@ -14,7 +11,6 @@ from libs.lighting import LightingManager
 
 
 class SphereLatLong:
-    """Sphere using latitude-longitude coordinates."""
 
     def __init__(self, vert_shader, frag_shader, lat_div=20, long_div=20):
         self.vert_shader = vert_shader

@@ -1,73 +1,98 @@
-"""Sphere approximated by subdividing a tetrahedron for rendering in the BTL project."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import OpenGL.GL as GL
-import sys
-import os
-
-# Add parent directory to path to import libs
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import glfw
 
 from libs.shader import Shader
 from libs.buffer import VAO, UManager
-from libs.lighting import LightingManager
+from libs import transform as T
 
+V = np.array([
+    [0.0, 0.0, 1.0],
+    [0.0, 0.942809, -0.33333],
+    [-0.816497, -0.471405, -0.33333],
+    [0.816497, -0.471405, -0.33333],
+], dtype=np.float32)
+
+def normalize(v):
+    v = np.array(v, dtype=np.float32)
+    n = np.linalg.norm(v)
+    return v / n if n > 0 else v
 
 class SphereTetrahedron:
-    """Sphere approximated by subdividing a tetrahedron and normalizing to radius."""
-
-    def __init__(self, vert_shader, frag_shader, subdivisions=3):
+    def __init__(self, vert_shader, frag_shader, subdiv=6, radius=0.8):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        self.subdivisions = subdivisions
-        self.vertices, self.indices = self._generate_sphere()
-        self.normals = self.vertices.copy()  # Normals are the same as positions for unit sphere
-        self.colors = np.random.rand(len(self.vertices), 3).astype(np.float32)
+        self.subdiv = subdiv
+        self.radius = radius
+
+        vertex_colors = np.array([
+            [0.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0]
+        ], dtype=np.float32)
+
+        self.out_verts = []
+        self.out_colors = []
+        
+        faces = [(0, 1, 2), (0, 2, 3), (0, 3, 1), (1, 3, 2)]
+        
+        for i0, i1, i2 in faces:
+            a = normalize(V[i0])
+            b = normalize(V[i1])
+            c = normalize(V[i2]) 
+            
+            color_a = vertex_colors[i0]
+            color_b = vertex_colors[i1]
+            color_c = vertex_colors[i2]
+            
+            self._subdivide_with_colors(a, b, c, color_a, color_b, color_c, self.subdiv)
+        
+        self.vertices = np.array(self.out_verts, dtype=np.float32) * self.radius
+        self.colors = np.array(self.out_colors, dtype=np.float32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
         self.uma = UManager(self.shader)
-        self.lighting = LightingManager(self.uma)
 
-    def _generate_sphere(self):
-        # Start with tetrahedron vertices
-        t = (1.0 + np.sqrt(5.0)) / 2.0  # Golden ratio
-        vertices = np.array([
-            [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
-            [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
-            [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
-        ], dtype=np.float32)
-        # Normalize to unit sphere
-        vertices = vertices / np.linalg.norm(vertices, axis=1, keepdims=True)
+        self.angle_x = 0.0
+        self.angle_y = 0.0
 
-        # Indices for tetrahedron (simplified, need proper triangulation)
-        # For simplicity, use a basic triangulation
-        indices = np.array([
-            0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
-            1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
-            3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
-            4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1
-        ], dtype=np.uint32)
-        # Subdivide if needed (for simplicity, skip advanced subdivision)
-        return vertices, indices
+    def _subdivide_with_colors(self, a, b, c, color_a, color_b, color_c, n):
+        if n <= 0:
+            self.out_verts.extend([a, b, c])
+            self.out_colors.extend([color_a, color_b, color_c])
+            return
+            
+        m = normalize((a + b) * 0.5)
+        p = normalize((a + c) * 0.5)
+        o = normalize((b + c) * 0.5)
+        
+        color_m = (color_a + color_b) * 0.5
+        color_p = (color_a + color_c) * 0.5
+        color_o = (color_b + color_c) * 0.5
+        
+        self._subdivide_with_colors(a, m, p, color_a, color_m, color_p, n - 1)
+        self._subdivide_with_colors(b, m, o, color_b, color_m, color_o, n - 1)
+        self._subdivide_with_colors(c, p, o, color_c, color_p, color_o, n - 1)
+        self._subdivide_with_colors(m, p, o, color_m, color_p, color_o, n - 1)
 
     def setup(self):
-        self.vao.add_vbo(0, self.vertices, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        self.vao.add_vbo(1, self.colors, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        if 'gouraud' in self.vert_shader.lower() or 'phong' in self.vert_shader.lower():
-            self.vao.add_vbo(2, self.normals, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        self.vao.add_ebo(self.indices)
+        self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(1, self.colors,   ncomponents=3, stride=0, offset=None)
         return self
 
-    def draw(self, projection, view, model):
-        GL.glUseProgram(self.shader.render_idx)
-        modelview = view @ (model if model is not None else np.identity(4, dtype=np.float32))
+    def draw(self, projection, view, _model_unused=None):
+        GL.glUseProgram(self.shader.render_idx) 
+
+        modelview = view 
+
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
-        if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud()
-        elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1)
+
         self.vao.activate()
-        GL.glDrawElements(GL.GL_TRIANGLES, self.indices.size, GL.GL_UNSIGNED_INT, None)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
         self.vao.deactivate()

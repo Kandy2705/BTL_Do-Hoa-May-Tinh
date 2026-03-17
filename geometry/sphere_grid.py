@@ -1,74 +1,75 @@
-"""Sphere approximated by grid on plane projected to sphere for rendering in the BTL project."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import OpenGL.GL as GL
-import sys
-import os
-
-# Add parent directory to path to import libs
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from libs.shader import Shader
 from libs.buffer import VAO, UManager
-from libs.lighting import LightingManager
-
 
 class SphereGrid:
-    """Sphere approximated by grid on plane projected to sphere."""
-
-    def __init__(self, vert_shader, frag_shader, stacks=20, slices=20):
+    def __init__(self, vert_shader, frag_shader, grid_size=20, radius=0.8):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        self.stacks = stacks
-        self.slices = slices
-        self.vertices, self.indices = self._generate_sphere()
-        self.normals = self.vertices.copy()
-        self.colors = np.random.rand(len(self.vertices), 3).astype(np.float32)
+        self.grid_size = grid_size 
+        self.radius = radius
+        
+        self.vertices, self.colors = self._generate_sphere_from_cube_grid()
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
         self.uma = UManager(self.shader)
-        self.lighting = LightingManager(self.uma)
 
-    def _generate_sphere(self):
-        vertices = []
-        for i in range(self.stacks + 1):
-            phi = np.pi * i / self.stacks
-            for j in range(self.slices + 1):
-                theta = 2 * np.pi * j / self.slices
-                x = np.sin(phi) * np.cos(theta)
-                y = np.cos(phi)
-                z = np.sin(phi) * np.sin(theta)
-                vertices.append([x, y, z])
-        vertices = np.array(vertices, dtype=np.float32)
+    def _generate_sphere_from_cube_grid(self):
+        """
+        Cách 2: Tạo 6 lưới hình vuông (6 mặt của cube) 
+        rồi chuẩn hóa (normalize) từng đỉnh để chiếu lên mặt cầu.
+        """
+        all_vertices = []
+        all_colors = []
 
-        indices = []
-        for i in range(self.stacks):
-            for j in range(self.slices):
-                first = i * (self.slices + 1) + j
-                second = first + self.slices + 1
-                indices.extend([first, second, first + 1, second, second + 1, first + 1])
-        indices = np.array(indices, dtype=np.uint32)
+        directions = [
+            np.array([1, 0, 0]), np.array([-1, 0, 0]),
+            np.array([0, 1, 0]), np.array([0, -1, 0]),
+            np.array([0, 0, 1]), np.array([0, 0, -1])
+        ]
 
-        return vertices, indices
+        for local_z in directions:
+            local_x = np.array([local_z[1], local_z[2], local_z[0]])
+            local_y = np.cross(local_z, local_x)
+
+            for j in range(self.grid_size):
+                for i in range(self.grid_size):
+                    for dx, dy in [(0,0), (1,0), (0,1), (0,1), (1,0), (1,1)]:
+                        percent_x = (i + dx) / self.grid_size
+                        percent_y = (j + dy) / self.grid_size
+                        
+                        point_on_cube = local_z + (percent_x * 2 - 1) * local_x + (percent_y * 2 - 1) * local_y
+                        
+                        point_on_sphere = point_on_cube / np.linalg.norm(point_on_cube)
+                        
+                        all_vertices.append(point_on_sphere * self.radius)
+                        
+                        color = (point_on_sphere + 1.0) * 0.5 
+                        all_colors.append(color)
+
+        return np.array(all_vertices, dtype=np.float32), np.array(all_colors, dtype=np.float32)
 
     def setup(self):
-        self.vao.add_vbo(0, self.vertices, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        self.vao.add_vbo(1, self.colors, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        if 'gouraud' in self.vert_shader.lower() or 'phong' in self.vert_shader.lower():
-            self.vao.add_vbo(2, self.normals, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        self.vao.add_ebo(self.indices)
+        self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(1, self.colors,   ncomponents=3, stride=0, offset=None)
         return self
 
-    def draw(self, projection, view, model):
-        GL.glUseProgram(self.shader.render_idx)
-        modelview = view @ (model if model is not None else np.identity(4, dtype=np.float32))
+    def draw(self, projection, view, model=None):
+        GL.glUseProgram(self.shader.render_idx) 
+
+        if model is None:
+            model = np.identity(4, dtype=np.float32)
+            
+        modelview = view @ model 
+
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
-        if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud()
-        elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1)
+
         self.vao.activate()
-        GL.glDrawElements(GL.GL_TRIANGLES, self.indices.size, GL.GL_UNSIGNED_INT, None)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
         self.vao.deactivate()
