@@ -31,6 +31,8 @@ class AppModel:
         "3D: Cone",
         "3D: Truncated Cone",
         "3D: Tetrahedron",
+        "3D: Torus",
+        "3D: Prism",
         "Part 2: SGD (Himmelblau)",
     ]
 
@@ -54,6 +56,8 @@ class AppModel:
         ("geometry.cone3d", "Cone"),
         ("geometry.truncated_cone3d", "TruncatedCone"),
         ("geometry.tetrahedron3d", "Tetrahedron"),
+        ("geometry.torus3d", "Torus"),
+        ("geometry.prism3d", "Prism"),
         ("", ""),
     ]
 
