@@ -1,5 +1,3 @@
-"""Tetrahedron 3D Shape for rendering in the BTL project."""
-
 import numpy as np
 import OpenGL.GL as GL
 import sys

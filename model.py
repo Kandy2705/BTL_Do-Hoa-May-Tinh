@@ -29,6 +29,7 @@ class AppModel:
         "3D: Sphere (Lat-Long)",
         "3D: Cylinder",
         "3D: Cone",
+        "3D: Truncated Cone",
         "3D: Tetrahedron",
         "Part 2: SGD (Himmelblau)",
     ]
@@ -46,12 +47,13 @@ class AppModel:
         ("geometry.star2d", "Star"),
         ("geometry.arrow2d", "Arrow"),
         ("geometry.cube3d", "Cube"),
-        ("geometry.sphere_tetrahedron", "SphereTetrahedron"),
-        ("geometry.sphere_grid", "SphereGrid"),
-        ("geometry.sphere_latlong", "SphereLatLong"),
+        ("geometry.sphere_tetrahedron3d", "SphereTetrahedron"),
+        ("geometry.sphere_grid3d", "SphereGrid"),
+        ("geometry.sphere_latlong3d", "SphereLatLong"),
         ("geometry.cylinder3d", "Cylinder"),
         ("geometry.cone3d", "Cone"),
-        ("geometry.tetrahedron", "Tetrahedron"),
+        ("geometry.truncated_cone3d", "TruncatedCone"),
+        ("geometry.tetrahedron3d", "Tetrahedron"),
         ("", ""),
     ]
 
