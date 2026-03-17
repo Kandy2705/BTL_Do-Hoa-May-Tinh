@@ -49,8 +49,8 @@ class AppModel:
         ("geometry.sphere_tetrahedron", "SphereTetrahedron"),
         ("geometry.sphere_grid", "SphereGrid"),
         ("geometry.sphere_latlong", "SphereLatLong"),
-        ("geometry.cylinder", "Cylinder"),
-        ("geometry.cone", "Cone"),
+        ("geometry.cylinder3d", "Cylinder"),
+        ("geometry.cone3d", "Cone"),
         ("geometry.tetrahedron", "Tetrahedron"),
         ("", ""),
     ]

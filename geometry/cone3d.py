@@ -1,11 +1,8 @@
-"""Cone 3D Shape for rendering in the BTL project."""
-
 import numpy as np
 import OpenGL.GL as GL
 import sys
 import os
 
-# Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from libs.shader import Shader
@@ -29,21 +26,17 @@ class Cone:
 
     def _generate_cone(self):
         vertices = []
-        # Base
-        vertices.append([0, -1, 0])  # Center base
+        vertices.append([0, -1, 0])
         for i in range(self.slices):
             angle = 2 * np.pi * i / self.slices
             vertices.append([np.cos(angle), -1, np.sin(angle)])
-        # Apex
         vertices.append([0, 1, 0])
         vertices = np.array(vertices, dtype=np.float32)
 
         indices = []
-        # Base
         for i in range(1, self.slices):
             indices.extend([0, i, i+1])
         indices.extend([0, self.slices, 1])
-        # Sides
         apex = self.slices + 1
         for i in range(self.slices):
             indices.extend([apex, i+1, (i+1) % self.slices + 1])
@@ -53,9 +46,7 @@ class Cone:
 
     def _generate_normals(self):
         normals = []
-        # Base
         normals.extend([[0, -1, 0]] * (self.slices + 1))
-        # Apex
         normals.append([0, 1, 0])
         return np.array(normals, dtype=np.float32)
 
