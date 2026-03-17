@@ -1,8 +1,3 @@
-"""Controller component (MVC) for the BTL graphics project.
-
-The controller is responsible for handling user input and updating the model.
-"""
-
 import glfw
 import imgui
 from typing import Optional
@@ -13,14 +8,11 @@ from viewer import Viewer
 
 class AppController:
     def __init__(self, model: Optional[AppModel] = None, view: Optional[Viewer] = None) -> None:
-        # Create View (OpenGL context) first, then create/load drawables.
         self.view = view or Viewer()
         self.model = model or AppModel()
 
-        # Now that OpenGL context exists, create the initial drawable.
         self.model.load_active_drawable()
 
-        # Hook up input callbacks
         self.view.scroll_callback = self.on_scroll
         self.view.mouse_move_callback = self.on_mouse_move
         self.view.key_callback = self.on_key

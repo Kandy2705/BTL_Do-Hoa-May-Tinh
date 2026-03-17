@@ -8,7 +8,6 @@ from libs.transform import Trackball
 
 
 class Viewer:
-    """View component in MVC: manages OpenGL/ImGui state and drawing."""
 
     def __init__(self, width=1280, height=720):
         glfw.init()
@@ -20,7 +19,6 @@ class Viewer:
         self.win = glfw.create_window(width, height, 'BTL Do hoa May tinh', None, None)
         glfw.make_context_current(self.win)
 
-        # Basic OpenGL setup
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
 
@@ -30,7 +28,6 @@ class Viewer:
         self.trackball = Trackball()
         self.last_mouse_pos = (0.0, 0.0)
 
-        # Optionally, controller can provide callbacks using these attributes.
         self.scroll_callback = None
         self.mouse_move_callback = None
         self.key_callback = None

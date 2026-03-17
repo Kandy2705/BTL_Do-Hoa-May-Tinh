@@ -1,9 +1,3 @@
-"""Application model (MVC) for the BTL graphics project.
-
-This module defines the application state (which shape is selected, which shader
-is active, etc.) and is responsible for creating the drawable objects.
-"""
-
 from __future__ import annotations
 
 import importlib
@@ -18,16 +12,7 @@ def _default_shader_paths() -> ShaderPaths:
 
 
 class AppModel:
-    """Application state (Model) for MVC.
 
-    Attributes:
-        selected_idx: currently selected menu index.
-        selected_shader: currently selected shader index.
-        menu_options: list of user-visible shape names.
-        shader_names: list of shader names for UI.
-    """
-
-    # NOTE: keep in sync with the "shape_factories" list below.
     menu_options: List[str] = [
         "2D: Triangle",
         "2D: Rectangle",
@@ -49,7 +34,6 @@ class AppModel:
 
     shader_names: List[str] = ["Color Interpolation", "Gouraud", "Phong"]
 
-    # Each entry should be (module_path, class_name). The order should match menu_options.
     _shape_factories: List[Tuple[str, str]] = [
         ("geometry.triangle2d", "Triangle"),
         ("geometry.rectangle2d", "Rectangle"),
@@ -66,16 +50,13 @@ class AppModel:
         ("geometry.cylinder", "Cylinder"),
         ("geometry.cone", "Cone"),
         ("geometry.tetrahedron", "Tetrahedron"),
-        ("", ""),  # placeholder for future "SGD" implementation
+        ("", ""),
     ]
 
     def __init__(self) -> None:
         self.selected_idx: int = 0
         self.selected_shader: int = 0
 
-        # NOTE: loading the drawable requires a valid OpenGL context.
-        # Do not call load_active_drawable() in __init__ unless the GL context
-        # is already created (e.g., after Viewer is initialized).
         self.active_drawable: Optional[Any] = None
         self.drawables: List[Any] = []
 
@@ -89,7 +70,6 @@ class AppModel:
         return _default_shader_paths()
 
     def load_active_drawable(self) -> None:
-        """Instantiate the drawable corresponding to the current selection."""
         self.active_drawable = None
         self.drawables = []
 
@@ -98,14 +78,12 @@ class AppModel:
 
         module_name, class_name = self._shape_factories[self.selected_idx]
         if not module_name or not class_name:
-            # Placeholder / not implemented (e.g., SGD)
             return
 
         try:
             module = importlib.import_module(module_name)
             shape_cls = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
-            # If the import fails, do not crash; leave drawables empty.
             print(f"[AppModel] failed to load {module_name}.{class_name}: {e}")
             return
 
@@ -115,14 +93,12 @@ class AppModel:
         self.drawables.append(drawable)
 
     def set_selected(self, idx: int) -> None:
-        """Change the selected shape index and reload the drawable."""
         if idx == self.selected_idx:
             return
         self.selected_idx = idx
         self.load_active_drawable()
 
     def set_shader(self, shader_idx: int) -> None:
-        """Change the shader and reload the drawable."""
         if shader_idx == self.selected_shader:
             return
         self.selected_shader = shader_idx
