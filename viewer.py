@@ -106,8 +106,8 @@ class Viewer:
 
         # ===== FRAME (Combo box, input) =====
         imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_HOVERED, 0.988, 0.522, 0.737, 1.0)
-        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_ACTIVE, 0.988, 0.422, 0.647, 1.0)
+        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_HOVERED, 0.988, 0.608, 0.737, 1.0)
+        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_ACTIVE, 0.988, 0.475, 0.647, 1.0)
 
         imgui.push_style_color(imgui.COLOR_POPUP_BACKGROUND, 1.0, 0.95, 0.97, 1.0)
         imgui.push_style_color(imgui.COLOR_NAV_HIGHLIGHT, 0.988, 0.522, 0.737, 1.0)
@@ -124,6 +124,13 @@ class Viewer:
         imgui.push_style_color(imgui.COLOR_RESIZE_GRIP, 0.988, 0.788, 0.855, 1.0)
         imgui.push_style_color(imgui.COLOR_RESIZE_GRIP_HOVERED, 0.988, 0.608, 0.737, 1.0)
         imgui.push_style_color(imgui.COLOR_RESIZE_GRIP_ACTIVE, 0.988, 0.475, 0.647, 1.0)
+
+        # ===== SCROLLBAR =====
+        imgui.push_style_color(imgui.COLOR_SCROLLBAR_BACKGROUND, 1, 0.878, 0.937, 1.0)
+
+        imgui.push_style_color(imgui.COLOR_SCROLLBAR_GRAB, 0.988, 0.788, 0.855, 1.0)
+        imgui.push_style_color(imgui.COLOR_SCROLLBAR_GRAB_HOVERED, 0.988, 0.608, 0.737, 1.0)
+        imgui.push_style_color(imgui.COLOR_SCROLLBAR_GRAB_ACTIVE, 0.988, 0.475, 0.647, 1.0)
 
         # ===== UI =====
         imgui.begin("BTL1: Controls")
@@ -162,6 +169,6 @@ class Viewer:
         imgui.end()
 
         # ===== POP ALL =====
-        imgui.pop_style_color(21)
+        imgui.pop_style_color(25)
         
         return actions
