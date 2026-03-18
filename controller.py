@@ -1,5 +1,4 @@
 import glfw
-import imgui
 import OpenGL.GL as GL
 from typing import Optional
 
@@ -54,98 +53,34 @@ class AppController:
         
         self.coord_system.setup(self.coord_vao, self.coord_uma)
 
-    def _draw_ui(self) -> None:
-        # ===== WINDOW =====
-        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 1, 0.976, 0.988, 1.0)
-
-        # ===== TITLE =====
-        imgui.push_style_color(imgui.COLOR_TITLE_BACKGROUND, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_TITLE_BACKGROUND_ACTIVE, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_TITLE_BACKGROUND_COLLAPSED, 0.988, 0.788, 0.855, 1.0)
-
-        # ===== HEADER =====
-        imgui.push_style_color(imgui.COLOR_HEADER, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_HEADER_HOVERED, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_HEADER_ACTIVE, 0.988, 0.788, 0.855, 1.0)
-
-        # ===== SEPARATOR =====
-        imgui.push_style_color(imgui.COLOR_SEPARATOR, 1.0, 0.1, 0.3, 1.0)
-
-        # ===== TEXT =====
-        imgui.push_style_color(imgui.COLOR_TEXT, 0.651, 0, 0.145, 1.0)
-
-        # ===== FRAME (Combo box, input) =====
-        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_HOVERED, 0.988, 0.522, 0.737, 1.0)
-        imgui.push_style_color(imgui.COLOR_FRAME_BACKGROUND_ACTIVE, 0.988, 0.422, 0.647, 1.0)
-
-        imgui.push_style_color(imgui.COLOR_POPUP_BACKGROUND, 1.0, 0.95, 0.97, 1.0)
-        imgui.push_style_color(imgui.COLOR_NAV_HIGHLIGHT, 0.988, 0.522, 0.737, 1.0)
-
-        # ===== BUTTON =====
-        imgui.push_style_color(imgui.COLOR_BUTTON, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 0.988, 0.608, 0.737, 1.0)
-        imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, 0.988, 0.475, 0.647, 1.0)
-
-        # ===== BORDER =====
-        imgui.push_style_color(imgui.COLOR_BORDER, 0.988, 0.788, 0.855, 1.0)
-
-        # ===== RESIZE GRIP =====
-        imgui.push_style_color(imgui.COLOR_RESIZE_GRIP, 0.988, 0.788, 0.855, 1.0)
-        imgui.push_style_color(imgui.COLOR_RESIZE_GRIP_HOVERED, 0.988, 0.608, 0.737, 1.0)
-        imgui.push_style_color(imgui.COLOR_RESIZE_GRIP_ACTIVE, 0.988, 0.475, 0.647, 1.0)
-
-        # ===== UI =====
-        imgui.begin("BTL1: Controls")
-
-        changed_cat, new_cat = imgui.combo(
-            "Select Category",
-            self.model.selected_category,
-            self.model.category_options
-        )
-        if changed_cat:
-            self.model.set_category(new_cat)
-
-        changed_shape, new_shape = imgui.combo(
-            "Select Shape",
-            self.model.selected_idx,
-            self.model.menu_options
-        )
-        if changed_shape:
-            self.model.set_selected(new_shape)
-
-        changed_shader, new_shader = imgui.combo(
-            "Select Shader",
-            self.model.selected_shader,
-            self.model.shader_names
-        )
-        if changed_shader:
-            self.model.set_shader(new_shader)
-
-        coord_status = "On" if self.coord_system.visible else "Off"
-        if imgui.button(f"Coordinate System: {coord_status}"):
+    def _process_ui_actions(self, actions):
+        """Process UI actions and update model accordingly"""
+        if 'category_changed' in actions:
+            self.model.set_category(actions['category_changed'])
+        
+        if 'shape_changed' in actions:
+            self.model.set_selected(actions['shape_changed'])
+        
+        if 'shader_changed' in actions:
+            self.model.set_shader(actions['shader_changed'])
+        
+        if 'toggle_coord_system' in actions:
             self.coord_system.toggle_visibility()
-
-        imgui.text("Left mouse: rotate | Scroll: zoom")
-        imgui.text("Press G to toggle coordinate system")
-
-        imgui.end()
-
-        # ===== POP ALL =====
-        imgui.pop_style_color(21)
 
     def run(self) -> None:
         while not self.view.should_close():
             self.view.poll_events()
             self.view.begin_frame()
 
-            self._draw_ui()
+            ui_actions = self.view.draw_ui(self.model, self.coord_system)
+            
+            self._process_ui_actions(ui_actions)
             
             view = self.view.trackball.view_matrix()
             projection = self.view.trackball.projection_matrix(glfw.get_window_size(self.view.win))
             
             GL.glUseProgram(self.coord_shader.render_idx)
-            self.coord_system.draw(projection, view)
+            self.view.draw_coordinate_system(self.coord_system, projection, view)
             
             self.view.draw_drawables(self.model.drawables)
 
