@@ -1,3 +1,5 @@
+# Hình nón 3D
+
 import numpy as np
 import OpenGL.GL as GL
 import sys

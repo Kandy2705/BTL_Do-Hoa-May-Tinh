@@ -1,3 +1,5 @@
+# Hình lục giác
+
 import numpy as np
 import OpenGL.GL as GL
 import sys

@@ -1,3 +1,5 @@
+# Hình tam giác
+
 import OpenGL.GL as GL              # standard Python OpenGL wrapper
 import numpy as np
 import sys

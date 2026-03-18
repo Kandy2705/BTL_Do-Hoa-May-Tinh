@@ -1,4 +1,4 @@
-"""Ellipse 2D Shape for rendering in the BTL project."""
+# Hình elip
 
 import numpy as np
 import OpenGL.GL as GL
