@@ -124,59 +124,123 @@ class ModelLoader(object):
         self._normalize_model()
     
     def _load_ply(self, filename):
+        import struct
+        
         vertices = []
-        normals = []
         faces = []
+        colors = []
+        normals = []
         
-        with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-        
-        header_end = -1
-        vertex_count = 0
-        face_count = 0
-        has_normals = False
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if line.startswith('element vertex'):
-                vertex_count = int(line.split()[-1])
-            elif line.startswith('element face'):
-                face_count = int(line.split()[-1])
-            elif 'nx' in line and 'ny' in line and 'nz' in line:
-                has_normals = True
-            elif line == 'end_header':
-                header_end = i
-                break
-        
-        if header_end == -1:
-            print("Warning: Invalid PLY file format. Using default cube.")
-            self._create_default_cube()
-            return
-        
-        for i in range(header_end + 1, header_end + 1 + vertex_count):
-            if i >= len(lines):
-                break
-            parts = lines[i].strip().split()
-            if len(parts) >= 3:
-                vertices.append([float(parts[0]), float(parts[1]), float(parts[2])])
-                if has_normals and len(parts) >= 6:
-                    normals.append([float(parts[3]), float(parts[4]), float(parts[5])])
-        
-        for i in range(header_end + 1 + vertex_count, min(header_end + 1 + vertex_count + face_count, len(lines))):
-            line = lines[i].strip()
-            parts = line.split()
-            if len(parts) >= 4:  # At least triangle
-                n_verts = int(parts[0])
-                face_verts = [int(x) for x in parts[1:1+n_verts]]
+        with open(filename, 'rb') as f:
+            header_lines = []
+            while True:
+                line = f.readline().decode('utf-8', errors='ignore').strip()
+                header_lines.append(line)
+                if line == 'end_header':
+                    break
+                    
+            format_type = 'ascii'
+            vertex_count = 0
+            face_count = 0
+            vertex_props = [] 
+            
+            current_element = None
+            for line in header_lines:
+                if line.startswith('format'):
+                    format_type = line.split()[1] 
+                elif line.startswith('element'):
+                    parts = line.split()
+                    current_element = parts[1]
+                    if current_element == 'vertex':
+                        vertex_count = int(parts[2])
+                    elif current_element == 'face':
+                        face_count = int(parts[2])
+                elif line.startswith('property') and current_element == 'vertex':
+                    parts = line.split()
+                    vertex_props.append((parts[1], parts[2]))
+                    
+            if vertex_count == 0:
+                print("Warning: PLY file không có đỉnh.")
+                self._create_default_cube()
+                return
+
+            print(f"Đang giải mã {vertex_count} đỉnh và {face_count} mặt (Format: {format_type})...")
+
+            if format_type == 'ascii':
+                lines = f.read().decode('utf-8', errors='ignore').splitlines()
+                lines = [l.strip() for l in lines if l.strip()]
                 
-                if n_verts == 3:
-                    faces.append(face_verts)
-                elif n_verts == 4:
-                    faces.append([face_verts[0], face_verts[1], face_verts[2]])
-                    faces.append([face_verts[2], face_verts[1], face_verts[3]])
-        
-        if not vertices:
-            print("Warning: No vertices found in PLY file. Using default cube.")
+                for i in range(vertex_count):
+                    parts = lines[i].split()
+                    if len(parts) >= 3:
+                        vertices.append([float(parts[0]), float(parts[1]), float(parts[2])])
+                        if len(parts) >= 6:
+                            try:
+                                r, g, b = float(parts[-3]), float(parts[-2]), float(parts[-1])
+                                colors.append([r/255.0 if r>1 else r, g/255.0 if g>1 else g, b/255.0 if b>1 else b])
+                            except: pass
+                
+                for i in range(vertex_count, vertex_count + face_count):
+                    if i >= len(lines): break
+                    parts = lines[i].split()
+                    if len(parts) >= 4:
+                        n_verts = int(parts[0])
+                        face_verts = [int(x) for x in parts[1:1+n_verts]]
+                        if n_verts == 3: faces.append(face_verts)
+                        elif n_verts == 4:
+                            faces.append([face_verts[0], face_verts[1], face_verts[2]])
+                            faces.append([face_verts[2], face_verts[1], face_verts[3]])
+                            
+            else:
+                endian = '<' if format_type == 'binary_little_endian' else '>'
+                
+                v_fmt = endian
+                for p_type, _ in vertex_props:
+                    if p_type in ['float', 'float32']: v_fmt += 'f'
+                    elif p_type in ['double', 'float64']: v_fmt += 'd'
+                    elif p_type in ['uchar', 'uint8']: v_fmt += 'B'
+                    elif p_type in ['int', 'int32']: v_fmt += 'i'
+                    else: v_fmt += 'f'
+                    
+                v_size = struct.calcsize(v_fmt)
+                
+                for _ in range(vertex_count):
+                    data = f.read(v_size)
+                    if not data: break
+                    unpacked = struct.unpack(v_fmt, data)
+                    
+                    v = [0.0, 0.0, 0.0]
+                    c = [-1.0, -1.0, -1.0]
+                    
+                    for idx, (p_type, p_name) in enumerate(vertex_props):
+                        val = unpacked[idx]
+                        if p_name == 'x': v[0] = float(val)
+                        elif p_name == 'y': v[1] = float(val)
+                        elif p_name == 'z': v[2] = float(val)
+                        elif p_name in ['r', 'red']: c[0] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        elif p_name in ['g', 'green']: c[1] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        elif p_name in ['b', 'blue']: c[2] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        
+                    vertices.append(v)
+                    if c[0] >= 0: colors.append(c)
+                
+                for _ in range(face_count):
+                    count_data = f.read(1)
+                    if not count_data: break
+                    count = struct.unpack(endian + 'B', count_data)[0]
+                    
+                    idx_data = f.read(count * 4) 
+                    if len(idx_data) < count * 4: break
+                    indices = struct.unpack(endian + str(count) + 'i', idx_data)
+                    
+                    if count == 3:
+                        faces.append(list(indices))
+                    elif count == 4:
+                        faces.append([indices[0], indices[1], indices[2]])
+                        faces.append([indices[2], indices[1], indices[3]])
+
+        if face_count == 0 or len(faces) == 0:
+            print("Warning: File PLY này là Point Cloud. Tạo khối hộp mặc định.")
             self._create_default_cube()
             return
             
@@ -185,18 +249,17 @@ class ModelLoader(object):
         indices = []
         for face in faces:
             indices.extend(face)
-        
         self.indices = np.array(indices, dtype=np.int32)
         
-        if normals:
-            self.normals = np.array(normals, dtype=np.float32)
+        if len(colors) == len(vertices):
+            self.colors = np.array(colors, dtype=np.float32)
         else:
-            self._generate_normals()
-        
-        self._generate_colors()
-        
+            self._generate_colors()
+            
+        self._generate_normals()
         self._normalize_model()
-    
+        print("Đọc file thành công!")
+
     def _generate_normals(self):
         """Generate vertex normals from face normals"""
         normals = np.zeros_like(self.vertices)
