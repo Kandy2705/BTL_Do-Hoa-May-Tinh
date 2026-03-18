@@ -14,7 +14,6 @@ class Viewer:
 
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         self.win = glfw.create_window(width, height, 'BTL Do hoa May tinh', None, None)
         glfw.make_context_current(self.win)
@@ -99,7 +98,7 @@ class Viewer:
         imgui.push_style_color(imgui.COLOR_HEADER_ACTIVE, 0.988, 0.788, 0.855, 1.0)
 
         # ===== SEPARATOR =====
-        imgui.push_style_color(imgui.COLOR_SEPARATOR, 1.0, 0.1, 0.3, 1.0)
+        imgui.push_style_color(imgui.COLOR_SEPARATOR, 0.651, 0, 0.145, 1.0)
 
         # ===== TEXT =====
         imgui.push_style_color(imgui.COLOR_TEXT, 0.651, 0, 0.145, 1.0)
@@ -162,6 +161,32 @@ class Viewer:
         coord_status = "On" if coord_system.visible else "Off"
         if imgui.button(f"Coordinate System: {coord_status}"):
             actions['toggle_coord_system'] = True
+
+        # Special controls for Mathematical Surface
+        if (model.selected_category == 2 and model.selected_idx == 0):
+            imgui.separator()
+            imgui.text("Mathematical Surface Settings:")
+            
+            changed_func, new_func = imgui.input_text("Function z = f(x,y)", model.math_function, 256)
+            if changed_func:
+                actions['math_function_changed'] = new_func
+            
+            imgui.text("VD:")
+            imgui.text("  x**2 + y**2")
+            imgui.text("  sin(x) * cos(y)")
+            imgui.text("  (x**2 + y - 11)**2 + (x + y**2 - 7)**2")
+
+        # Special controls for Model Loader
+        elif (model.selected_category == 3 and model.selected_idx == 0):
+            imgui.separator()
+            imgui.text("Model Loader Settings:")
+            
+            changed_file, new_file = imgui.input_text("Model File (.obj/.ply):", model.model_filename, 256)
+            if changed_file:
+                actions['model_filename_changed'] = new_file
+            
+            if imgui.button("Browse Files"):
+                actions['browse_model_file'] = True
 
         imgui.text("Left mouse: rotate | Scroll: zoom")
         imgui.text("Press G to toggle coordinate system")

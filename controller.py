@@ -66,6 +66,49 @@ class AppController:
         
         if 'toggle_coord_system' in actions:
             self.coord_system.toggle_visibility()
+        
+        if 'math_function_changed' in actions:
+            self.model.set_math_function(actions['math_function_changed'])
+            if (self.model.selected_category == 2 and self.model.selected_idx == 0):
+                self.model.reload_current_shape()
+        
+        if 'model_filename_changed' in actions:
+            self.model.set_model_filename(actions['model_filename_changed'])
+            if (self.model.selected_category == 3 and self.model.selected_idx == 0):
+                self.model.reload_current_shape()
+        
+        if 'browse_model_file' in actions:
+            self._browse_model_file()
+
+    def _browse_model_file(self):
+            """Open file browser for model files using macOS native dialog"""
+            import platform
+            import subprocess
+
+            if platform.system() == "Darwin":
+                try:
+                    script = '''
+                    try
+                        set chosen_file to choose file with prompt "Select 3D Model File (.obj, .ply):"
+                        POSIX path of chosen_file
+                    end try
+                    '''
+                    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        filename = result.stdout.strip()
+                        self.model.set_model_filename(filename)
+                        print(f"Đã chọn file: {filename}")
+                        
+                        if (self.model.selected_category == 3 and self.model.selected_idx == 0):
+                            self.model.reload_current_shape()
+                    else:
+                        print("Đã hủy chọn file.")
+                except Exception as e:
+                    print(f"Lỗi khi mở hộp thoại Mac: {e}")
+            else:
+                print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
+                print("Vui lòng nhập đường dẫn thủ công.")
 
     def run(self) -> None:
         while not self.view.should_close():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
@@ -15,38 +16,50 @@ class AppModel:
 
     def __init__(self) -> None:
         self.selected_idx: int = 0
-        self.selected_category: int = 0  # 0: 2D, 1: 3D, 2: SGD
+        self.selected_category: int = 0  # 0: 2D, 1: 3D, 2: Mathematical Surface, 3: Model from file, 4: SGD
         self.selected_shader: int = 0
 
         self.active_drawable: Optional[Any] = None
         self.drawables: List[Any] = []
+        
+        # Additional parameters for special shapes
+        self.math_function: str = "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"  # Himmelblau's function
+        self.model_filename: str = ""  # For .obj/.ply files
 
     @property
     def menu_options(self) -> List[str]:
         if self.selected_category == 0:  # 2D
             return [
-                "2D: Triangle",
-                "2D: Rectangle", 
-                "2D: Pentagon",
-                "2D: Hexagon",
-                "2D: Circle",
-                "2D: Ellipse",
-                "2D: Trapezoid",
-                "2D: Star",
-                "2D: Arrow",
+                "Triangle",
+                "Rectangle", 
+                "Pentagon",
+                "Hexagon",
+                "Circle",
+                "Ellipse",
+                "Trapezoid",
+                "Star",
+                "Arrow",
             ]
         elif self.selected_category == 1:  # 3D
             return [
-                "3D: Cube",
-                "3D: Sphere (Tetrahedron)",
-                "3D: Sphere (Grid)",
-                "3D: Sphere (Lat-Long)",
-                "3D: Cylinder",
-                "3D: Cone",
-                "3D: Truncated Cone",
-                "3D: Tetrahedron",
-                "3D: Torus",
-                "3D: Prism",
+                "Cube",
+                "Sphere (Tetrahedron)",
+                "Sphere (Grid)",
+                "Sphere (Lat-Long)",
+                "Cylinder",
+                "Cone",
+                "Truncated Cone",
+                "Tetrahedron",
+                "Torus",
+                "Prism",
+            ]
+        elif self.selected_category == 2:  # Mathematical Surface
+            return [
+                "Mathematical Surface z=f(x,y)",
+            ]
+        elif self.selected_category == 3:  # Model from file
+            return [
+                "Model from .obj/.ply file",
             ]
         else:  # SGD
             return ["Part 2: SGD (Himmelblau)"]
@@ -57,7 +70,7 @@ class AppModel:
 
     @property
     def category_options(self) -> List[str]:
-        return ["2D Shapes", "3D Shapes", "SGD"]
+        return ["2D Shapes", "3D Shapes", "Mathematical Surface", "Model from file", "SGD"]
 
     def _shape_factories(self) -> List[Tuple[str, str]]:
         if self.selected_category == 0:  # 2D
@@ -84,6 +97,14 @@ class AppModel:
                 ("geometry.tetrahedron3d", "Tetrahedron"),
                 ("geometry.torus3d", "Torus"),
                 ("geometry.prism3d", "Prism"),
+            ]
+        elif self.selected_category == 2:  # Mathematical Surface
+            return [
+                ("geometry.math_surface3d", "MathematicalSurface"),
+            ]
+        elif self.selected_category == 3:  # Model from file
+            return [
+                ("geometry.model_loader3d", "ModelLoader"),
             ]
         else:  # SGD
             return [("", "")]
@@ -118,7 +139,37 @@ class AppModel:
             return
 
         vert_shader, frag_shader = self._shader_paths()
-        drawable = shape_cls(vert_shader, frag_shader)
+        
+        # Handle special cases with additional parameters
+        if class_name == "MathematicalSurface":
+            try:
+                import numpy as np
+                # Create safe namespace for eval
+                safe_dict = {
+                    'x': None, 'y': None,
+                    'sin': np.sin, 'cos': np.cos, 'tan': np.tan,
+                    'exp': np.exp, 'log': np.log, 'sqrt': np.sqrt,
+                    'pi': np.pi, 'e': np.e,
+                    'abs': np.abs, 'min': np.minimum, 'max': np.maximum
+                }
+                # Parse function string safely
+                func_str = f"def f(x, y): return {self.math_function}"
+                exec(func_str, safe_dict)
+                func = safe_dict['f']
+                drawable = shape_cls(vert_shader, frag_shader, func=func)
+            except Exception as e:
+                print(f"Error parsing math function: {e}")
+                print("Using default function instead")
+                drawable = shape_cls(vert_shader, frag_shader)
+        elif class_name == "ModelLoader":
+            if self.model_filename:
+                drawable = shape_cls(vert_shader, frag_shader, filename=self.model_filename)
+            else:
+                print("No model file specified, using default cube")
+                drawable = shape_cls(vert_shader, frag_shader)
+        else:
+            drawable = shape_cls(vert_shader, frag_shader)
+            
         drawable.setup()
         self.drawables.append(drawable)
         self.active_drawable = drawable
@@ -140,4 +191,16 @@ class AppModel:
         if shader_idx == self.selected_shader:
             return
         self.selected_shader = shader_idx
+        self.load_active_drawable()
+
+    def set_math_function(self, func_str: str) -> None:
+        if func_str != self.math_function:
+            self.math_function = func_str
+
+    def set_model_filename(self, filename: str) -> None:
+        if filename != self.model_filename:
+            self.model_filename = filename
+
+    def reload_current_shape(self) -> None:
+        """Reload the current shape"""
         self.load_active_drawable()

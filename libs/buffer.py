@@ -89,8 +89,14 @@ class UManager(object):
 
         GL.glActiveTexture(GL.GL_TEXTURE0 + binding_loc) # activate texture GL.GL_TEXTURE0, GL.GL_TEXTURE1, ...
         GL.glBindTexture(GL.GL_TEXTURE_2D, texture_idx)
-        GL.glUniform1i(GL.glGetUniformLocation(self.shader.render_idx, sampler_name),
-                       binding_loc)
+        
+        # Check if uniform exists before setting it
+        uniform_location = GL.glGetUniformLocation(self.shader.render_idx, sampler_name)
+        if uniform_location == -1:
+            print(f"Warning: Uniform '{sampler_name}' not found in shader. Skipping texture setup.")
+            return
+        
+        GL.glUniform1i(uniform_location, binding_loc)
 
         GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGB,
                         rgb_image.shape[1], rgb_image.shape[0],
