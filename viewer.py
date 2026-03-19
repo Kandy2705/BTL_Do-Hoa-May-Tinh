@@ -47,6 +47,12 @@ class Viewer:
         self.last_mouse_pos = (xpos, ypos)
 
     def _on_key(self, window, key, scancode, action, mods):
+        self.imgui_impl.keyboard_callback(window, key, scancode, action, mods)
+
+        io = imgui.get_io()
+        if io.want_capture_keyboard:
+            return
+            
         if self.key_callback:
             self.key_callback(window, key, scancode, action, mods)
 
