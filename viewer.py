@@ -180,7 +180,6 @@ class Viewer:
             imgui.text("VD:")
             imgui.text("  x**2 + y**2")
             imgui.text("  sin(x) * cos(y)")
-            imgui.text("  (x**2 + y - 11)**2 + (x + y**2 - 7)**2")
 
         # Special controls for Model Loader
         elif (model.selected_category == 3 and model.selected_idx == 0):
