@@ -18,11 +18,25 @@ class Circle:
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.segments = segments
-        angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
-        self.vertices = np.column_stack([np.cos(angles), np.sin(angles), np.zeros(segments)]).astype(np.float32)
-        self.normals = np.tile([0, 0, 1], (segments, 1)).astype(np.float32)
-        self.colors = np.random.rand(segments, 3).astype(np.float32)
-        self.indices = np.arange(segments, dtype=np.uint32)
+        self.vertices = [[0.0, 0.0, 0.0]]
+        self.normals = [[0.0, 0.0, 1.0]]
+        self.colors = [[1.0, 1.0, 1.0]]
+        self.indices = []
+        
+        for i in range(self.segments + 1):
+            angle = 2 * np.pi * i / self.segments
+            x = np.cos(angle)
+            y = np.sin(angle)
+            z = 0
+
+            self.vertices.append([x, y, z])
+            self.normals.append([0, 0, 1])
+            self.colors.append([np.random.random(), np.random.random(), np.random.random()])
+
+        self.vertices = np.array(self.vertices, dtype=np.float32)
+        self.normals = np.array(self.normals, dtype=np.float32)
+        self.colors = np.array(self.colors, dtype=np.float32)
+        self.indices = np.array(self.indices, dtype=np.uint32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -46,5 +60,5 @@ class Circle:
         elif 'phong' in self.vert_shader.lower():
             self.lighting.setup_phong(mode=1)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.segments)
+        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.segments + 2)
         self.vao.deactivate()

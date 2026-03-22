@@ -17,23 +17,41 @@ class Star:
     def __init__(self, vert_shader, frag_shader, points=5):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        angles = np.linspace(0, 2*np.pi, 2*points, endpoint=False)
-        radii = np.tile([1, 0.5], points)
+        self.vertices = [[0, 0, 0]]
+        self.colors = [[1, 1, 1]]
+        self.normals = [[0, 0, 1]]
 
-        center = np.array([[0, 0, 0]], dtype=np.float32)
+        self.vertices1 = []
+        self.colors1 = []
+        self.normals1 = []
 
-        outer_vertices = np.column_stack([
-            radii * np.cos(angles),
-            radii * np.sin(angles),
-            np.zeros(2*points)
-        ])
+        self.vertices2 = []
+        self.colors2 = []
+        self.normals2 = []
 
-        outer_vertices = np.vstack([outer_vertices, outer_vertices[0]])
+        for i in range(points + 1):
+            angle = 2 * np.pi * i / points
+            self.vertices1.append([np.cos(angle), np.sin(angle), 0])
+            self.colors1.append([np.random.random(), np.random.random(), np.random.random()])
+            self.normals1.append([0, 0, 1])
 
-        self.vertices = np.vstack([center, outer_vertices]).astype(np.float32)
+        for i in range(points + 1):
+            angle = 2 * np.pi * i / points + np.pi / points
+            self.vertices2.append([0.5 * np.cos(angle), 0.5 * np.sin(angle), 0])
+            self.colors2.append([np.random.random(), np.random.random(), np.random.random()])
+            self.normals2.append([0, 0, 1])
 
-        self.normals = np.tile([0, 0, 1], (len(self.vertices), 1)).astype(np.float32)
-        self.colors = np.random.rand(len(self.vertices), 3).astype(np.float32)
+        for i in range(points + 1):
+            self.vertices.append(self.vertices1[i])
+            self.colors.append(self.colors1[i])
+            self.normals.append(self.normals1[i])
+            self.vertices.append(self.vertices2[i])
+            self.colors.append(self.colors2[i])
+            self.normals.append(self.normals2[i])
+
+        self.vertices = np.array(self.vertices, dtype=np.float32)
+        self.colors = np.array(self.colors, dtype=np.float32)
+        self.normals = np.array(self.normals, dtype=np.float32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)

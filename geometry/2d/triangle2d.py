@@ -20,8 +20,8 @@ class Triangle:
         self.frag_shader = frag_shader
         self.vertices = np.array([
             [-1, -1, 0],
-            [+1, -1, 0],
-            [ 0, +1, 0]
+            [1, -1, 0],
+            [0, 1, 0]
         ], dtype=np.float32)
         normals = np.random.normal(0, 3, (3, 3)).astype(np.float32)
         normals[:, 2] = np.abs(normals[:, 2])

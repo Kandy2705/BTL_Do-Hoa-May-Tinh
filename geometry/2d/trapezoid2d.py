@@ -26,10 +26,10 @@ class Trapezoid:
 
     def _generate_trapezoid(self):
         vertices = np.array([
-            [-1.0, -0.5, 0.0],
-            [1.0, -0.5, 0.0],
-            [-0.5, 0.5, 0.0],
-            [0.5, 0.5, 0.0],
+            [0.5, 1, 0],
+            [1, 0, 0],
+            [-0.5, 1, 0],
+            [-1, 0, 0],
         ], dtype=np.float32)
 
         return vertices
@@ -45,5 +45,5 @@ class Trapezoid:
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, len(self.vertices))
+        GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4)
         self.vao.deactivate()
