@@ -1,8 +1,7 @@
 # BTL Đồ Họa Máy Tính
 
 ## Mô tả dự án
-Dự án đồ họa máy tính sử dụng OpenGL và Dear ImGui để hiển thị các đối tượng 3D với các shader khác nhau.
-
+Dự án đồ họa máy tính sử dụng OpenGL và Dear ImGui để hiển thị các đối tượng 3D với các shader khác nhau. Để xem chi tiết: [Xem chi tiết dự án tại đây](./ChiTiet.md)
 ## Yêu cầu hệ thống
 - Python 3.7+
 - OpenGL
