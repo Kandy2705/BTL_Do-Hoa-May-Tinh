@@ -75,28 +75,28 @@ class AppModel:
     def _shape_factories(self) -> List[Tuple[str, str]]:
         if self.selected_category == 0:  # 2D
             return [
-                ("geometry.triangle2d", "Triangle"),
-                ("geometry.rectangle2d", "Rectangle"),
-                ("geometry.pentagon2d", "Pentagon"),
-                ("geometry.hexagon2d", "Hexagon"),
-                ("geometry.circle2d", "Circle"),
-                ("geometry.ellipse2d", "Ellipse"),
-                ("geometry.trapezoid2d", "Trapezoid"),
-                ("geometry.star2d", "Star"),
-                ("geometry.arrow2d", "Arrow"),
+                ("geometry.2d.triangle2d", "Triangle"),
+                ("geometry.2d.rectangle2d", "Rectangle"),
+                ("geometry.2d.pentagon2d", "Pentagon"),
+                ("geometry.2d.hexagon2d", "Hexagon"),
+                ("geometry.2d.circle2d", "Circle"),
+                ("geometry.2d.ellipse2d", "Ellipse"),
+                ("geometry.2d.trapezoid2d", "Trapezoid"),
+                ("geometry.2d.star2d", "Star"),
+                ("geometry.2d.arrow2d", "Arrow"),
             ]
         elif self.selected_category == 1:  # 3D
             return [
-                ("geometry.cube3d", "Cube"),
-                ("geometry.sphere_tetrahedron3d", "SphereTetrahedron"),
-                ("geometry.sphere_grid3d", "SphereGrid"),
-                ("geometry.sphere_latlong3d", "SphereLatLong"),
-                ("geometry.cylinder3d", "Cylinder"),
-                ("geometry.cone3d", "Cone"),
-                ("geometry.truncated_cone3d", "TruncatedCone"),
-                ("geometry.tetrahedron3d", "Tetrahedron"),
-                ("geometry.torus3d", "Torus"),
-                ("geometry.prism3d", "Prism"),
+                ("geometry.3d.cube3d", "Cube"),
+                ("geometry.3d.sphere_tetrahedron3d", "SphereTetrahedron"),
+                ("geometry.3d.sphere_grid3d", "SphereGrid"),
+                ("geometry.3d.sphere_latlong3d", "SphereLatLong"),
+                ("geometry.3d.cylinder3d", "Cylinder"),
+                ("geometry.3d.cone3d", "Cone"),
+                ("geometry.3d.truncated_cone3d", "TruncatedCone"),
+                ("geometry.3d.tetrahedron3d", "Tetrahedron"),
+                ("geometry.3d.torus3d", "Torus"),
+                ("geometry.3d.prism3d", "Prism"),
             ]
         elif self.selected_category == 2:  # Mathematical Surface
             return [
