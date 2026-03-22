@@ -5,6 +5,8 @@ import OpenGL.GL as GL
 import sys
 import os
 
+from numpy.ma import angle
+
 # Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,16 +22,23 @@ class Ellipse:
         self.a = a 
         self.b = b 
         self.segments = segments
+        self.vertices = [[0, 0, 0]]
+        self.normals = [[0, 0, 1]]
+        self.colors = [[1.0, 1.0, 1.0]]
 
-        angles = np.linspace(0, 2 * np.pi, self.segments, endpoint=False)
-        self.vertices = np.column_stack([
-            self.a * np.cos(angles),
-            self.b * np.sin(angles),
-            np.zeros(self.segments)
-        ]).astype(np.float32)
+        for i in range(self.segments + 1):
+            angle = 2 * np.pi * i / self.segments
+            x = self.a * np.cos(angle)
+            y = self.b * np.sin(angle)
+            z = 0
 
-        self.normals = np.tile([0, 0, 1], (self.segments, 1)).astype(np.float32)
-        self.colors = np.random.rand(self.segments, 3).astype(np.float32)
+            self.vertices.append([x, y, z])
+            self.normals.append([0, 0, 1])
+            self.colors.append([np.random.random(), np.random.random(), np.random.random()])
+            
+        self.vertices = np.array(self.vertices, dtype=np.float32)
+        self.normals = np.array(self.normals, dtype=np.float32)
+        self.colors = np.array(self.colors, dtype=np.float32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -53,5 +62,5 @@ class Ellipse:
         elif 'phong' in self.vert_shader.lower():
             self.lighting.setup_phong(mode=1)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.segments)
+        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.segments + 2)
         self.vao.deactivate()

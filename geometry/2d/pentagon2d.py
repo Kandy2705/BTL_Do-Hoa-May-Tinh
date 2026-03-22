@@ -17,11 +17,26 @@ class Pentagon:
     def __init__(self, vert_shader, frag_shader):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        angles = np.linspace(0, 2*np.pi, 5, endpoint=False)  # 5 points for regular pentagon
-        self.vertices = np.column_stack([np.cos(angles), np.sin(angles), np.zeros(5)]).astype(np.float32)
-        self.normals = np.tile([0, 0, 1], (5, 1)).astype(np.float32)
-        self.colors = np.random.rand(5, 3).astype(np.float32)
-        self.indices = np.arange(5, dtype=np.uint32)
+        self.vertices = [[0.0, 0.0, 0.0]]
+        self.normals = [[0.0, 0.0, 1.0]]
+        self.colors = [[1.0, 1.0, 1.0]]
+        self.indices = []
+
+        for i in range(6):
+            angle = 2 * np.pi * i / 5
+            x = np.cos(angle)
+            y = np.sin(angle)
+            z = 0
+
+            self.vertices.append([x, y, z])
+            self.normals.append([0, 0, 1])
+            self.colors.append([np.random.random(), np.random.random(), np.random.random()])
+            self.indices.append(i)
+
+        self.vertices = np.array(self.vertices, dtype=np.float32)
+        self.normals = np.array(self.normals, dtype=np.float32)
+        self.colors = np.array(self.colors, dtype=np.float32)
+        self.indices = np.array(self.indices, dtype=np.uint32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -45,5 +60,5 @@ class Pentagon:
         elif 'phong' in self.vert_shader.lower():
             self.lighting.setup_phong(mode=1)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, 5)
+        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, 7)
         self.vao.deactivate()

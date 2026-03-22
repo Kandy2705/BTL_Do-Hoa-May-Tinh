@@ -5,6 +5,8 @@ import OpenGL.GL as GL
 import sys
 import os
 
+from numpy.ma import angle
+
 # Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,11 +19,26 @@ class Hexagon:
     def __init__(self, vert_shader, frag_shader):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        angles = np.linspace(0, 2*np.pi, 6, endpoint=False)  # 6 points for regular hexagon
-        self.vertices = np.column_stack([np.cos(angles), np.sin(angles), np.zeros(6)]).astype(np.float32)
-        self.normals = np.tile([0, 0, 1], (6, 1)).astype(np.float32)
-        self.colors = np.random.rand(6, 3).astype(np.float32)
-        self.indices = np.arange(6, dtype=np.uint32)
+        self.vertices = [[0.0, 0.0, 0.0]]
+        self.normals = [[0.0, 0.0, 1.0]]
+        self.colors = [[1.0, 1.0, 1.0]]
+        self.indices = []
+
+        for i in range(7):
+            angle = 2 * np.pi * i / 6
+            x = np.cos(angle)
+            y = np.sin(angle)
+            z = 0
+
+            self.vertices.append([x, y, z])
+            self.normals.append([0, 0, 1])
+            self.colors.append([np.random.random(), np.random.random(), np.random.random()])
+            self.indices.append(i)
+
+        self.vertices = np.array(self.vertices, dtype=np.float32)
+        self.normals = np.array(self.normals, dtype=np.float32)
+        self.colors = np.array(self.colors, dtype=np.float32)
+        self.indices = np.array(self.indices, dtype=np.uint32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -45,5 +62,5 @@ class Hexagon:
         elif 'phong' in self.vert_shader.lower():
             self.lighting.setup_phong(mode=1)
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, 6)
+        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, 8)
         self.vao.deactivate()
