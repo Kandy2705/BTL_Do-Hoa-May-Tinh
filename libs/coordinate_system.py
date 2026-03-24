@@ -2,10 +2,11 @@ import numpy as np
 import OpenGL.GL as GL
 
 class CoordinateSystem:
-    def __init__(self, axis_length=10.0, grid_size=1.0):
+    def __init__(self, axis_length=10.0, grid_size=1.0, is_3d=False):
         self.axis_length = axis_length
         self.grid_size = grid_size
         self.visible = True
+        self.is_3d = is_3d  # True: lưới XZ, False: lưới XY
         
         self._generate_axes()
         self._generate_grid()
@@ -15,7 +16,6 @@ class CoordinateSystem:
         vertices = []
         colors = []
         
-        # Trục X (đỏ) - từ (0,0,0) đến (L,0,0)
         vertices.extend([[0, 0, 0], [self.axis_length, 0, 0]])
         colors.extend([[1, 0, 0], [1, 0, 0]])  # Đỏ
         
@@ -35,15 +35,26 @@ class CoordinateSystem:
         
         grid_range = int(self.axis_length / self.grid_size)
         
-        for i in range(-grid_range, grid_range + 1):
-            y = i * self.grid_size
-            vertices.extend([[-self.axis_length, y, 0], [self.axis_length, y, 0]])
-            colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])  # Xám nhạt
-        
-        for i in range(-grid_range, grid_range + 1):
-            x = i * self.grid_size
-            vertices.extend([[x, -self.axis_length, 0], [x, self.axis_length, 0]])
-            colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])  # Xám nhạt
+        if self.is_3d:
+            for i in range(-grid_range, grid_range + 1):
+                z = i * self.grid_size
+                vertices.extend([[-self.axis_length, 0, z], [self.axis_length, 0, z]])
+                colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
+            
+            for i in range(-grid_range, grid_range + 1):
+                x = i * self.grid_size
+                vertices.extend([[x, 0, -self.axis_length], [x, 0, self.axis_length]])
+                colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
+        else:
+            for i in range(-grid_range, grid_range + 1):
+                y = i * self.grid_size
+                vertices.extend([[-self.axis_length, y, 0], [self.axis_length, y, 0]])
+                colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
+            
+            for i in range(-grid_range, grid_range + 1):
+                x = i * self.grid_size
+                vertices.extend([[x, -self.axis_length, 0], [x, self.axis_length, 0]])
+                colors.extend([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
         
         self.grid_vertices = np.array(vertices, dtype=np.float32)
         self.grid_colors = np.array(colors, dtype=np.float32)
@@ -88,3 +99,12 @@ class CoordinateSystem:
     def set_visibility(self, visible):
         """Thiết lập hiển thị hệ trục tọa độ"""
         self.visible = visible
+        
+    def set_mode(self, is_3d):
+        """Chuyển đổi giữa chế độ 2D và 3D"""
+        if self.is_3d != is_3d:
+            self.is_3d = is_3d
+            self._generate_grid()
+            if hasattr(self, 'grid_vao'):
+                self.grid_vao.add_vbo(0, self.grid_vertices, ncomponents=3, stride=0, offset=None)
+                self.grid_vao.add_vbo(1, self.grid_colors, ncomponents=3, stride=0, offset=None)

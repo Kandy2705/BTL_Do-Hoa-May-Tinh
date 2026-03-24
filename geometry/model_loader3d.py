@@ -45,7 +45,6 @@ class ModelLoader(object):
     def load_model(self, filename):
         """Load model from .obj or .ply file"""
         if not os.path.exists(filename):
-            print(f"Warning: File {filename} not found. Using default cube.")
             self._create_default_cube()
             return
             
@@ -56,7 +55,6 @@ class ModelLoader(object):
         elif file_ext == '.ply':
             self._load_ply(filename)
         else:
-            print(f"Warning: Unsupported file format {file_ext}. Using default cube.")
             self._create_default_cube()
     
     def _load_obj(self, filename):

@@ -22,8 +22,7 @@ class AppModel:
         self.active_drawable: Optional[Any] = None
         self.drawables: List[Any] = []
         
-        # Additional parameters for special shapes
-        self.math_function: str = "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"  # Himmelblau's function
+        self.math_function: str = "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"  # mac dinh
         self.model_filename: str = ""  # For .obj/.ply files
 
     @property
@@ -53,15 +52,15 @@ class AppModel:
                 "Torus",
                 "Prism",
             ]
-        elif self.selected_category == 2:  # Mathematical Surface
+        elif self.selected_category == 2:
             return [
                 "Mathematical Surface z=f(x,y)",
             ]
-        elif self.selected_category == 3:  # Model from file
+        elif self.selected_category == 3: 
             return [
                 "Model from .obj/.ply file",
             ]
-        else:  # SGD
+        else:
             return ["Part 2: SGD (Himmelblau)"]
 
     @property
@@ -127,24 +126,20 @@ class AppModel:
 
         module_name, class_name = self._shape_factories()[self.selected_idx]
         if not module_name or not class_name:
-            # Placeholder / not implemented (e.g., SGD)
             return
 
         try:
             module = importlib.import_module(module_name)
             shape_cls = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
-            # If the import fails, do not crash; leave drawables empty.
             print(f"[AppModel] failed to load {module_name}.{class_name}: {e}")
             return
 
         vert_shader, frag_shader = self._shader_paths()
         
-        # Handle special cases with additional parameters
         if class_name == "MathematicalSurface":
             try:
                 import numpy as np
-                # Create safe namespace for eval
                 safe_dict = {
                     'x': None, 'y': None,
                     'sin': np.sin, 'cos': np.cos, 'tan': np.tan,
@@ -152,7 +147,6 @@ class AppModel:
                     'pi': np.pi, 'e': np.e,
                     'abs': np.abs, 'min': np.minimum, 'max': np.maximum
                 }
-                # Parse function string safely
                 func_str = f"def f(x, y): return {self.math_function}"
                 exec(func_str, safe_dict)
                 func = safe_dict['f']
@@ -184,7 +178,7 @@ class AppModel:
         if category == self.selected_category:
             return
         self.selected_category = category
-        self.selected_idx = 0  # Reset to first shape in new category
+        self.selected_idx = 0 
         self.load_active_drawable()
 
     def set_shader(self, shader_idx: int) -> None:

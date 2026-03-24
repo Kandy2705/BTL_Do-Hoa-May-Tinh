@@ -28,11 +28,11 @@ class Cone:
 
     def _generate_cone(self):
         vertices = []
-        vertices.append([0, -1, 0])
+        vertices.append([0, 0, 0])
         for i in range(self.slices):
             angle = 2 * np.pi * i / self.slices
-            vertices.append([np.cos(angle), -1, np.sin(angle)])
-        vertices.append([0, 1, 0])
+            vertices.append([np.cos(angle), 0, np.sin(angle)])
+        vertices.append([0, 2, 0])
         vertices = np.array(vertices, dtype=np.float32)
 
         indices = []
@@ -48,7 +48,7 @@ class Cone:
 
     def _generate_normals(self):
         normals = []
-        normals.extend([[0, -1, 0]] * (self.slices + 1))
+        normals.extend([[0, 0, 0]] * (self.slices + 1))
         normals.append([0, 1, 0])
         return np.array(normals, dtype=np.float32)
 
