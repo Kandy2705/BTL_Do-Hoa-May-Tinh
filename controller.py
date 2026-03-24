@@ -122,6 +122,16 @@ class AppController:
 
             ui_actions = self.view.draw_ui(self.model, self.coord_system)
             
+            if 'category_changed' in ui_actions:
+                self.model.set_category(ui_actions['category_changed'])
+            
+            if 'shape_changed' in ui_actions:
+                self.model.set_selected(ui_actions['shape_changed'])
+            
+            if 'math_function_changed' in ui_actions:
+                self.model.set_math_function(ui_actions['math_function_changed'])
+                self.model.load_active_drawable()
+            
             self._process_ui_actions(ui_actions)
             
             view = self.view.trackball.view_matrix()
