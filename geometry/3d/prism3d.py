@@ -80,15 +80,12 @@ class Prism:
         self.lighting = LightingManager(self.uma)
 
     def setup(self):
-        # setup VAO for drawing cube
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
         
-        # Add normals for Gouraud/Phong shading (if shader needs it)
         if 'gouraud' in self.vert_shader.lower() or 'phong' in self.vert_shader.lower():
             self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
 
-        # setup EBO for drawing cube
         self.vao.add_ebo(self.indices)
 
         return self
@@ -101,7 +98,6 @@ class Prism:
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        # Setup lighting if using Gouraud or Phong shader
         if 'gouraud' in self.vert_shader.lower():
             self.lighting.setup_gouraud()
         elif 'phong' in self.vert_shader.lower():

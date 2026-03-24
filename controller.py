@@ -16,7 +16,7 @@ class AppController:
 
         self.model.load_active_drawable()
         
-        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0)
+        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
         self._setup_coordinate_system()
 
         self.view.scroll_callback = self.on_scroll
@@ -56,7 +56,12 @@ class AppController:
     def _process_ui_actions(self, actions):
         """Process UI actions and update model accordingly"""
         if 'category_changed' in actions:
+            # old_category = self.model.selected_category
             self.model.set_category(actions['category_changed'])
+            if self.model.selected_category == 0 or self.model.selected_category == 2:
+                self.coord_system.set_mode(is_3d=False)
+            else:
+                self.coord_system.set_mode(is_3d=True)
         
         if 'shape_changed' in actions:
             self.model.set_selected(actions['shape_changed'])

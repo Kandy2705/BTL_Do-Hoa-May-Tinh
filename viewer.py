@@ -168,7 +168,6 @@ class Viewer:
         if imgui.button(f"Coordinate System: {coord_status}"):
             actions['toggle_coord_system'] = True
 
-        # Special controls for Mathematical Surface
         if (model.selected_category == 2 and model.selected_idx == 0):
             imgui.separator()
             imgui.text("Mathematical Surface Settings:")
@@ -181,7 +180,6 @@ class Viewer:
             imgui.text("  x**2 + y**2")
             imgui.text("  sin(x) * cos(y)")
 
-        # Special controls for Model Loader
         elif (model.selected_category == 3 and model.selected_idx == 0):
             imgui.separator()
             imgui.text("Model Loader Settings:")

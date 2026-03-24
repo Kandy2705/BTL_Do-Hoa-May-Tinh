@@ -12,7 +12,7 @@ from libs.buffer import VAO, UManager
 from libs.lighting import LightingManager
 
 class Torus:
-    def __init__(self, vert_shader, frag_shader, R=0.7, r=0.2, slices=40, stacks=20):
+    def __init__(self, vert_shader, frag_shader, R=0.7, r=0.3, slices=40, stacks=20):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.R = R

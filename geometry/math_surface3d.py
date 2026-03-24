@@ -35,20 +35,37 @@ class MathematicalSurface(object):
         """Generate vertices, indices, normals and colors for the mathematical surface"""
         import warnings
         
-        # 1. Tạo lưới tọa độ THỰC để tính toán hàm f(x,y)
-        x_real = np.linspace(self.x_range[0], self.x_range[1], self.resolution)
-        y_real = np.linspace(self.y_range[0], self.y_range[1], self.resolution)
-        X_real, Y_real = np.meshgrid(x_real, y_real)
+        x_real = []
+        for i in range(self.resolution):
+            x = self.x_range[0] + (self.x_range[1] - self.x_range[0]) * i / (self.resolution - 1)
+            x_real.append(x)
         
-        # Bắt lỗi toán học (chia 0, căn âm...)
+        y_real = []
+        for i in range(self.resolution):
+            y = self.y_range[0] + (self.y_range[1] - self.y_range[0]) * i / (self.resolution - 1)
+            y_real.append(y)
+        
+        X_real = []
+        Y_real = []
+        for y_idx in range(len(y_real)):
+            row_x = []
+            row_y = []
+            for x_idx in range(len(x_real)):
+                row_x.append(x_real[x_idx])
+                row_y.append(y_real[y_idx])
+            X_real.append(row_x)
+            Y_real.append(row_y)
+        
+        X_real = np.array(X_real, dtype=np.float32)
+        Y_real = np.array(Y_real, dtype=np.float32)
+        
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             Z_real = self.func(X_real, Y_real)
             
         Z_real = np.nan_to_num(Z_real, nan=0.0, posinf=100.0, neginf=-100.0)
-        Z_real = np.clip(Z_real, -100.0, 100.0) # Gọt bớt các đỉnh quá sắc nhọn
+        Z_real = np.clip(Z_real, -100.0, 100.0)
         
-        # 2. HÀM CHUẨN HÓA ĐỂ VẼ (Ép X, Y, Z về khối hộp [-2, 2] cho vừa khung hình)
         def normalize_for_draw(arr, target_min=-2.0, target_max=2.0):
             arr_min, arr_max = arr.min(), arr.max()
             if arr_max - arr_min == 0:
@@ -63,16 +80,13 @@ class MathematicalSurface(object):
         normals = []
         colors = []
         
-        # Lấy khoảng cách giữa 2 điểm vẽ để tính pháp tuyến (bắt sáng mượt hơn)
         dx_draw = X_draw[0, 1] - X_draw[0, 0]
         dy_draw = Y_draw[1, 0] - Y_draw[0, 0]
         
-        # 3. NẠP ĐỈNH, PHÁP TUYẾN VÀ MÀU SẮC
         for i in range(self.resolution):
             for j in range(self.resolution):
                 vertices.append([X_draw[i, j], Y_draw[i, j], Z_draw[i, j]])
                 
-                # Tính Vector pháp tuyến dựa trên hình vẽ đã chuẩn hóa
                 if 0 < i < self.resolution-1 and 0 < j < self.resolution-1:
                     dz_dx = (Z_draw[i, j+1] - Z_draw[i, j-1]) / (2 * dx_draw)
                     dz_dy = (Z_draw[i+1, j] - Z_draw[i-1, j]) / (2 * dy_draw)
@@ -82,19 +96,17 @@ class MathematicalSurface(object):
                     normal = np.array([0.0, 0.0, 1.0])
                 normals.append(normal)
                 
-                # Phối màu quang phổ (Càng cao càng đỏ, càng thấp càng xanh)
-                h = (Z_draw[i, j] + 2.0) / 4.0  # Chuyển độ cao về khoảng 0.0 -> 1.0
+                h = (Z_draw[i, j] + 2.0) / 4.0
                 colors.append([
-                    0.2 + 0.8 * h,          # Đỏ tăng dần theo chiều cao
-                    0.3 + 0.4 * (1 - abs(2*h-1)), # Xanh lá ở giữa lưng chừng
-                    0.8 - 0.6 * h           # Xanh dương đậm ở vùng trũng
+                    0.2 + 0.8 * h,
+                    0.3 + 0.4 * (1 - abs(2*h-1)),
+                    0.8 - 0.6 * h
                 ])
                 
         self.vertices = np.array(vertices, dtype=np.float32)
         self.normals = np.array(normals, dtype=np.float32)
         self.colors = np.array(colors, dtype=np.float32)
         
-        # 4. NỐI CÁC ĐIỂM THÀNH LƯỚI TAM GIÁC (Giữ nguyên)
         indices = []
         for i in range(self.resolution - 1):
             for j in range(self.resolution - 1):
