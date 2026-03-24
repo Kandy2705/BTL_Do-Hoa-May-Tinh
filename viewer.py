@@ -4,6 +4,7 @@ import imgui
 from imgui.integrations.glfw import GlfwRenderer
 import itertools
 from libs.transform import Trackball
+from PIL import Image
 
 class Viewer:
     def __init__(self, width=1280, height=720):
@@ -29,6 +30,12 @@ class Viewer:
         self.key_callback = None
         self.last_mouse_pos = (0.0, 0.0)
         self.fill_modes = itertools.cycle([gl.GL_FILL, gl.GL_LINE, gl.GL_POINT])
+
+        self.cube_texture_id, _, _ = self.load_texture("assets/textures/cube-solid.png")
+        self.hand_texture_id, _, _ = self.load_texture("assets/textures/hand-solid.png")
+        self.move_texture_id, _, _ = self.load_texture("assets/textures/arrows-up-down-left-right-solid.png")
+        self.rotate_texture_id, _, _ = self.load_texture("assets/textures/arrows-rotate-solid.png")
+        self.scale_texture_id, _, _ = self.load_texture("assets/textures/up-right-from-square-solid.png")
 
         glfw.set_scroll_callback(self.win, self._on_scroll)
         glfw.set_cursor_pos_callback(self.win, self._on_mouse_move)
@@ -66,6 +73,22 @@ class Viewer:
         self.imgui_impl.keyboard_callback(window, key, scancode, action, mods)
         if not imgui.get_io().want_capture_keyboard and self.key_callback:
             self.key_callback(window, key, scancode, action, mods)
+
+    def load_texture(self, image_path):
+        img = Image.open(image_path).convert("RGBA")
+        # Lật ảnh ngược lại để đúng chiều trong OpenGL
+        img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        width, height = img.size
+        data = img.tobytes("raw", "RGBA", 0, -1)
+
+        texture_id = gl.glGenTextures(1)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, width, height, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, data)
+        
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+        
+        return texture_id, width, height
 
     def should_close(self) -> bool:
         return glfw.window_should_close(self.win)
@@ -163,8 +186,8 @@ class Viewer:
             imgui.end_main_menu_bar()
 
         # 2. THANH CÔNG CỤ VIEWPORT (2D/3D, Wireframe, Grid)
-        imgui.set_next_window_position(275, 20)
-        imgui.set_next_window_size(win_w - 595, 35)
+        imgui.set_next_window_position(275 + 40, 20)
+        imgui.set_next_window_size(win_w - 595 - 40, 35)
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
         imgui.begin("ViewportToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
         
@@ -183,6 +206,30 @@ class Viewer:
         imgui.pop_style_color()
 
         # 3. BẢNG HIERARCHY (Bên trái)
+        imgui.set_next_window_position(275, 20)
+        imgui.set_next_window_size(40, win_h - 220)
+        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
+        imgui.begin("Tools", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
+
+        if imgui.image(self.cube_texture_id, 24, 24):
+            print("Đã chọn Object Tool")
+        
+        if imgui.image_button(self.hand_texture_id, 16, 16):
+            print("Đã chọn Hand Tool")
+            
+        if imgui.image_button(self.move_texture_id, 16, 16):
+            print("Đã chọn Move Tool")
+            
+        if imgui.image_button(self.rotate_texture_id, 16, 16):
+            print("Đã chọn Rotate Tool")
+            
+        if imgui.image_button(self.scale_texture_id, 16, 16):
+            print("Đã chọn Scale Tool")
+
+        imgui.end()
+        imgui.pop_style_color()
+
+        # 4. BẢNG HIERARCHY (Bên trái)
         imgui.set_next_window_position(0, 20)
         imgui.set_next_window_size(275, win_h - 220)
         imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
