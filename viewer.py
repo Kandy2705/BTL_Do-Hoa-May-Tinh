@@ -106,11 +106,17 @@ class Viewer:
         self.imgui_impl.render(imgui.get_draw_data())
         glfw.swap_buffers(self.win)
 
-    def draw_drawables(self, drawables):
+    def draw_drawables(self, drawables, hierarchy_objects):
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
-        for drawable in drawables:
-            drawable.draw(projection, view, None)
+        
+        for i, obj in enumerate(hierarchy_objects):
+            if obj["type"] in ["3d", "math", "custom_model"]:
+                pos = obj["transform"]["position"]
+                rot = obj["transform"]["rotation"]
+                sca = obj["transform"]["scale"]
+                
+                
 
     def cycle_polygon_mode(self) -> None:
         gl.glPolygonMode(gl.GL_FRONT_AND_BACK, next(self.fill_modes))
@@ -233,72 +239,195 @@ class Viewer:
         imgui.set_next_window_position(0, 20)
         imgui.set_next_window_size(275, win_h - 220)
         imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        if imgui.tree_node("Objects", imgui.TREE_NODE_DEFAULT_OPEN):
-            current_obj_name = model.menu_options[model.selected_idx] if model.selected_idx < len(model.menu_options) else "Unknown"
-            imgui.selectable(f"  {current_obj_name}", True)
-            
-            # Menu chuột phải để tạo nhanh Object
-            if imgui.begin_popup_context_window():
-                if imgui.begin_menu("Create 2D Object"):
-                    if imgui.menu_item("Triangle")[0]: actions['category_changed'], actions['shape_changed'] = 0, 0
-                    if imgui.menu_item("Square")[0]: actions['category_changed'], actions['shape_changed'] = 0, 1
-                    imgui.end_menu()
-                if imgui.begin_menu("Create 3D Object"):
-                    if imgui.menu_item("Cube")[0]: actions['category_changed'], actions['shape_changed'] = 1, 0
-                    if imgui.menu_item("Sphere")[0]: actions['category_changed'], actions['shape_changed'] = 1, 1
-                    imgui.end_menu()
-                imgui.separator()
-                imgui.menu_item("Delete")
-                imgui.end_popup()
-                
+        
+        # Menu chuột phải cho toàn bộ Hierarchy window
+        if imgui.begin_popup_context_window():
+            if imgui.begin_menu("Add 2D Object"):
+                original_cat = model.selected_category
+                model.selected_category = 0 
+                for idx, name in enumerate(model.menu_options):
+                    if imgui.menu_item(name)[0]:
+                        actions['category_changed'] = 0
+                        actions['shape_changed'] = idx
+                model.selected_category = original_cat
+                imgui.end_menu()
+            if imgui.begin_menu("Add 3D Object"):
+                original_cat = model.selected_category
+                model.selected_category = 1
+                for idx, name in enumerate(model.menu_options):
+                    if imgui.menu_item(name)[0]:
+                        actions['category_changed'] = 1
+                        actions['shape_changed'] = idx
+                model.selected_category = original_cat
+                imgui.end_menu()
+            if imgui.begin_menu("Add Mathematical Surface"):
+                if imgui.menu_item("Z = f(x,y)")[0]:
+                    actions['category_changed'] = 2
+                    actions['shape_changed'] = 0
+                imgui.end_menu()
+            if imgui.begin_menu("Add Model from file"):
+                if imgui.menu_item("Model from .obj/.ply file")[0]:
+                    actions['category_changed'] = 3
+                    actions['shape_changed'] = 0
+                imgui.end_menu()
+            if imgui.begin_menu("Add Light"):
+                if imgui.menu_item("Light")[0]: 
+                    actions['add_light'] = True
+                imgui.end_menu()
+            if imgui.begin_menu("Add Camera"):
+                if imgui.menu_item("Camera")[0]: 
+                    actions['add_camera'] = True
+                imgui.end_menu()
+            imgui.separator()
+            imgui.menu_item("Delete")
+            imgui.end_popup()
+        
+        if imgui.tree_node("MainScene", imgui.TREE_NODE_DEFAULT_OPEN):
+            for i, obj in enumerate(model.hierarchy_objects):
+                # BẮT BUỘC PHẢI TÁCH TUPLE Ở ĐÂY để không bị lỗi dính object cuối cùng
+                clicked, state = imgui.selectable(f"{obj['name']}##{obj['id']}", obj.get("selected", False))
+                if clicked:
+                    actions['select_hierarchy_object'] = i
             imgui.tree_pop()
+
         imgui.end()
 
-        # 4. BẢNG INSPECTOR (Bên phải - Chỉnh sửa thuộc tính)
+        # --- BẢNG INSPECTOR (Bên phải) ---
         imgui.set_next_window_position(win_w - 320, 20)
         imgui.set_next_window_size(320, win_h - 20)
         imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
-        imgui.checkbox("##active", True); imgui.same_line()
-        imgui.text_colored(model.menu_options[model.selected_idx], 1, 1, 1, 1)
-        imgui.separator()
-
-        # Component Transform
-        if imgui.collapsing_header("Transform", imgui.TREE_NODE_DEFAULT_OPEN):
-            imgui.drag_float3("Position", 0.0, 0.0, 0.1)
-            imgui.drag_float3("Rotation", 0.0, 0.0, 1.0)
-            imgui.drag_float3("Scale", 1.0, 1.0, 0.1)
-
-        if model.selected_category == 3:
-            if imgui.collapsing_header("Model Loader", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.text(f"File: {model.model_filename}")
-                if imgui.button("Change Model (.obj/.ply)", width=-1):
-                    actions['browse_model_file'] = True
-
-        # Component đặc thù cho BTL 2 [cite: 131, 136]
-        if model.selected_category == 4:
-            if imgui.collapsing_header("Synthetic Data Gen", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.button("Export COCO JSON", width=-1)
-                imgui.button("Generate Depth Map", width=-1)
-
-        # Chế độ dựng hình & Shader
-        if imgui.collapsing_header("Mesh Renderer", imgui.TREE_NODE_DEFAULT_OPEN):
-            changed_shader, new_shader = imgui.combo("Shader", model.selected_shader, model.shader_names)
-            if changed_shader: actions['shader_changed'] = new_shader
-
-        # Component đặc thù cho SGD [cite: 81]
-        if model.selected_category == 2:
-            if imgui.collapsing_header("Mathematical Surface Setting", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.text("Phuong trinh z = f(x, y):")
-                imgui.push_item_width(-1) # Kéo dài ô input hết cỡ
+        selected_obj = model.get_selected_hierarchy_object()
+        
+        if not selected_obj:
+            imgui.text_disabled("No Object Selected")
+        else:
+            obj_id = selected_obj.get("id", 0)
+            obj_type = selected_obj.get("type", "unknown")
+            obj_name = selected_obj.get("name", "Unknown")
+            obj_data = selected_obj  # Dùng chung dictionary
+            
+            # --- HEADER ---
+            imgui.checkbox("##active", True); imgui.same_line()
+            icon = self.cube_texture_id
+            imgui.image(icon, 16, 16)
+            imgui.same_line()
+            imgui.text_colored(f"{obj_name}", 1.0, 1.0, 1.0, 1.0)
+            imgui.separator()
+            
+            # --- COMPONENT: TRANSFORM (Luôn có) ---
+            transform = obj_data.get("transform", {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]})
+            if imgui.collapsing_header("Transform", imgui.TREE_NODE_DEFAULT_OPEN):
+                imgui.columns(2, "trans_layout", False)
+                imgui.set_column_width(0, 80)
                 
-                # Ô gõ hàm
-                changed, new_func = imgui.input_text("##fxy", model.math_function, 256)
-                if changed:
-                    actions['math_function_changed'] = new_func # Gửi về controller
+                # Position
+                imgui.text("Position"); imgui.next_column()
+                imgui.push_item_width(-1)
+                changed_pos, new_pos = imgui.drag_float3(f"##pos_{obj_id}", transform["position"][0], transform["position"][1], transform["position"][2], 0.1)
+                if changed_pos: actions['update_transform_pos'] = {'obj_id': obj_id, 'value': list(new_pos)}
+                imgui.pop_item_width(); imgui.next_column()
+                
+                # Rotation
+                imgui.text("Rotation"); imgui.next_column()
+                imgui.push_item_width(-1)
+                changed_rot, new_rot = imgui.drag_float3(f"##rot_{obj_id}", transform["rotation"][0], transform["rotation"][1], transform["rotation"][2], 1.0)
+                if changed_rot: actions['update_transform_rot'] = {'obj_id': obj_id, 'value': list(new_rot)}
+                imgui.pop_item_width(); imgui.next_column()
+                
+                # Scale
+                imgui.text("Scale"); imgui.next_column()
+                imgui.push_item_width(-1)
+                changed_sca, new_sca = imgui.drag_float3(f"##sca_{obj_id}", transform["scale"][0], transform["scale"][1], transform["scale"][2], 0.1)
+                if changed_sca: actions['update_transform_scale'] = {'obj_id': obj_id, 'value': list(new_sca)}
+                imgui.pop_item_width(); imgui.next_column()
+                
+                # QUAN TRỌNG: Phải đóng cột trước khi kết thúc khối Transform để các Component sau không bị thụt lề
+                imgui.columns(1)
+
+            # --- DYNAMIC COMPONENTS: MESH RENDERER ---
+            if obj_type in ["2d", "3d", "math", "custom_model", "mesh"]:
+                mesh_renderer = obj_data.get("mesh_renderer", {"shader_idx": 0, "color": [1.0, 0.5, 0.0]})
+                if imgui.collapsing_header("Mesh Renderer", imgui.TREE_NODE_DEFAULT_OPEN):
+                    imgui.columns(2, "mesh_cols", False)
+                    imgui.set_column_width(0, 80)
                     
-                imgui.pop_item_width()
-                imgui.text_disabled("Vi du: (x**2 + y - 11)**2")
+                    imgui.text("Shader"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    current_shader = mesh_renderer.get("shader_idx", 0)
+                    changed_shader, new_shader = imgui.combo(f"##shader_{obj_id}", current_shader, model.shader_names)
+                    if changed_shader: 
+                        actions['update_mesh_shader'] = {"obj_id": obj_id, "value": new_shader}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.text("Color"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    current_color = mesh_renderer.get("color", [1.0, 0.5, 0.0])
+                    changed_color, new_color = imgui.color_edit3(f"##color_{obj_id}", *current_color)
+                    if changed_color: 
+                        actions['update_mesh_color'] = {"obj_id": obj_id, "value": list(new_color)}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.columns(1)
+
+            # --- DYNAMIC COMPONENTS: MATH SCRIPT ---
+            if obj_type == "math":
+                math_data = obj_data.get("math_data", {"function": "(x**2 + y - 11)**2"})
+                if imgui.collapsing_header("Math Script", imgui.TREE_NODE_DEFAULT_OPEN):
+                    imgui.text("z = f(x, y):")
+                    imgui.push_item_width(-1)
+                    changed_func, new_func = imgui.input_text(f"##fxy_{obj_id}", math_data.get("function", ""), 256)
+                    if changed_func: actions['update_math_function'] = {"obj_id": obj_id, "value": new_func}
+                    imgui.pop_item_width()
+            
+            # --- DYNAMIC COMPONENTS: LIGHT SETTINGS ---
+            elif obj_type == "light":
+                light_data = obj_data.get("light_data", {"intensity": 1.0, "color": [1.0, 1.0, 1.0]})
+                if imgui.collapsing_header("Light Settings", imgui.TREE_NODE_DEFAULT_OPEN):
+                    imgui.columns(2, "light_cols", False)
+                    imgui.set_column_width(0, 80)
+                    
+                    imgui.text("Intensity"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    changed_intensity, new_intensity = imgui.drag_float(f"##intensity_{obj_id}", light_data.get("intensity", 1.0), 0.1, 10.0)
+                    if changed_intensity: actions['update_light_intensity'] = {"obj_id": obj_id, "value": new_intensity}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.text("Color"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    current_light_color = light_data.get("color", [1.0, 1.0, 1.0])
+                    changed_light_color, new_light_color = imgui.color_edit3(f"##light_color_{obj_id}", *current_light_color)
+                    if changed_light_color: actions['update_light_color'] = {"obj_id": obj_id, "value": list(new_light_color)}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.columns(1)
+                    
+            # --- DYNAMIC COMPONENTS: CAMERA SETTINGS ---
+            elif obj_type == "camera":
+                camera_data = obj_data.get("camera_data", {"fov": 60.0, "near": 0.1, "far": 100.0})
+                if imgui.collapsing_header("Camera Settings", imgui.TREE_NODE_DEFAULT_OPEN):
+                    imgui.columns(2, "cam_cols", False)
+                    imgui.set_column_width(0, 80)
+                    
+                    imgui.text("FOV"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    changed_fov, new_fov = imgui.slider_float(f"##fov_{obj_id}", camera_data.get("fov", 60.0), 10.0, 120.0)
+                    if changed_fov: actions['update_camera_fov'] = {"obj_id": obj_id, "value": new_fov}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.text("Near"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    changed_near, new_near = imgui.drag_float(f"##near_{obj_id}", camera_data.get("near", 0.1), 0.01, 10.0)
+                    if changed_near: actions['update_camera_near'] = {"obj_id": obj_id, "value": new_near}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.text("Far"); imgui.next_column()
+                    imgui.push_item_width(-1)
+                    changed_far, new_far = imgui.drag_float(f"##far_{obj_id}", camera_data.get("far", 100.0), 1.0, 1000.0)
+                    if changed_far: actions['update_camera_far'] = {"obj_id": obj_id, "value": new_far}
+                    imgui.pop_item_width(); imgui.next_column()
+                    
+                    imgui.columns(1)
 
         imgui.end()
 

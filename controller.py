@@ -62,9 +62,13 @@ class AppController:
                 self.coord_system.set_mode(is_3d=False)
             else:
                 self.coord_system.set_mode(is_3d=True)
+            # Reset hierarchy selection when category changes
+            self.model.select_hierarchy_object(-1)
         
         if 'shape_changed' in actions:
             self.model.set_selected(actions['shape_changed'])
+            # Reset hierarchy selection when mesh shape changes
+            self.model.select_hierarchy_object(-1)
         
         if 'shader_changed' in actions:
             self.model.set_shader(actions['shader_changed'])
@@ -84,36 +88,161 @@ class AppController:
         
         if 'browse_model_file' in actions:
             self._browse_model_file()
+        
+        if 'color_changed' in actions:
+            self.model.set_color(actions['color_changed'])
+            print(f"Color updated to: {actions['color_changed']}")
+        
+        if 'browse_texture_file' in actions:
+            self._browse_texture_file()
+        
+        if 'clear_texture' in actions:
+            self.model.set_texture_filename("")
+            print("Texture cleared")
+        
+        # Add Light and Camera actions
+        if 'add_light' in actions:
+            light_count = len([obj for obj in self.model.hierarchy_objects if obj["type"] == "light"])
+            light_name = f"Light {light_count + 1}"
+            self.model.add_hierarchy_object(light_name, "light")
+            self.model.select_hierarchy_object(len(self.model.hierarchy_objects) - 1)
+            print(f"Added {light_name}")
+        
+        if 'add_camera' in actions:
+            camera_count = len([obj for obj in self.model.hierarchy_objects if obj["type"] == "camera"])
+            camera_name = f"Camera {camera_count + 1}"
+            self.model.add_hierarchy_object(camera_name, "camera")
+            self.model.select_hierarchy_object(len(self.model.hierarchy_objects) - 1)
+            print(f"Added {camera_name}")
+        
+        if 'reset_to_mesh' in actions:
+            self.model.set_object_type("mesh")
+            print("Reset to Mesh object")
+        
+        # === NEW: DYNAMIC INSPECTOR ACTIONS ===
+        
+        # Transform updates
+        if 'update_transform_pos' in actions:
+            data = actions['update_transform_pos']
+            self.model.update_selected_object_data("transform.position", data['value'])
+            
+        if 'update_transform_rot' in actions:
+            data = actions['update_transform_rot']
+            self.model.update_selected_object_data("transform.rotation", data['value'])
+            
+        if 'update_transform_scale' in actions:
+            data = actions['update_transform_scale']
+            self.model.update_selected_object_data("transform.scale", data['value'])
+        
+        # Mesh Renderer updates
+        if 'update_mesh_shader' in actions:
+            data = actions['update_mesh_shader']
+            self.model.update_selected_object_data("mesh_renderer.shader_idx", data['value'])
+            # Update global shader for compatibility if mesh object selected
+            if data['obj_id'] == -1:
+                self.model.set_shader(data['value'])
+                self.model.reload_current_shape()
+                
+        if 'update_mesh_color' in actions:
+            data = actions['update_mesh_color']
+            self.model.update_selected_object_data("mesh_renderer.color", data['value'])
+            # Update global color for compatibility if mesh object selected
+            if data['obj_id'] == -1:
+                self.model.set_color(tuple(data['value']))
+        
+        # Math Surface updates
+        if 'update_math_function' in actions:
+            data = actions['update_math_function']
+            self.model.update_selected_object_data("math_data.function", data['value'])
+            
+        # Model Loader updates
+        if 'browse_model_for_object' in actions:
+            data = actions['browse_model_for_object']
+            self._browse_model_for_specific_object(data['obj_id'])
+        
+        # Light updates
+        if 'update_light_intensity' in actions:
+            data = actions['update_light_intensity']
+            self.model.update_selected_object_data("light_data.intensity", data['value'])
+            
+        if 'update_light_color' in actions:
+            data = actions['update_light_color']
+            self.model.update_selected_object_data("light_data.color", data['value'])
+        
+        # Camera updates
+        if 'update_camera_fov' in actions:
+            data = actions['update_camera_fov']
+            self.model.update_selected_object_data("camera.fov", data['value'])
+            
+        if 'update_camera_near' in actions:
+            data = actions['update_camera_near']
+            self.model.update_selected_object_data("camera.near", data['value'])
+            
+        if 'update_camera_far' in actions:
+            data = actions['update_camera_far']
+            self.model.update_selected_object_data("camera.far", data['value'])
 
-    def _browse_model_file(self):
-            """Open file browser for model files using macOS native dialog"""
-            import platform
-            import subprocess
+        # --- Bổ sung vào controller.py ---
+        if 'select_hierarchy_object' in actions:
+            self.model.select_hierarchy_object(actions['select_hierarchy_object'])
+            
+        if 'update_obj' in actions:
+            data = actions['update_obj']
+            self.model.update_object_data(data['id'], data['key'], data['val'])
 
-            if platform.system() == "Darwin":
-                try:
-                    script = '''
-                    try
-                        set chosen_file to choose file with prompt "Select 3D Model File (.obj, .ply):"
-                        POSIX path of chosen_file
-                    end try
-                    '''
-                    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
-                    
-                    if result.returncode == 0 and result.stdout.strip():
-                        filename = result.stdout.strip()
-                        self.model.set_model_filename(filename)
-                        print(f"Đã chọn file: {filename}")
-                        
-                        if (self.model.selected_category == 3 and self.model.selected_idx == 0):
-                            self.model.reload_current_shape()
-                    else:
-                        print("Đã hủy chọn file.")
-                except Exception as e:
-                    print(f"Lỗi khi mở hộp thoại Mac: {e}")
-            else:
-                print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
-                print("Vui lòng nhập đường dẫn thủ công.")
+    def _browse_texture_file(self):
+        """Open file browser for texture files using macOS native dialog"""
+        import platform
+        import subprocess
+
+        if platform.system() == "Darwin":
+            try:
+                script = '''
+                try
+                    set chosen_file to choose file with prompt "Select Texture File (.png, .jpg, .tga):"
+                    POSIX path of chosen_file
+                end try
+                '''
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    filename = result.stdout.strip()
+                    self.model.set_texture_filename(filename)
+                    print(f"Đã chọn texture: {filename}")
+                else:
+                    print("Đã hủy chọn texture.")
+            except Exception as e:
+                print(f"Lỗi khi mở hộp thoại Mac: {e}")
+        else:
+            print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
+
+    def _browse_model_for_specific_object(self, obj_id):
+        """Browse model file for specific hierarchy object"""
+        import platform
+        import subprocess
+
+        if platform.system() == "Darwin":
+            try:
+                script = '''
+                try
+                    set chosen_file to choose file with prompt "Select 3D Model File (.obj, .ply):"
+                    POSIX path of chosen_file
+                end try
+                '''
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    filename = result.stdout.strip()
+                    # Update the specific object's model data
+                    self.model.update_selected_object_data("model_data.filename", filename)
+                    print(f"Đã chọn file cho object {obj_id}: {filename}")
+                else:
+                    print("Đã hủy chọn file.")
+            except Exception as e:
+                print(f"Lỗi khi mở hộp thoại Mac: {e}")
+        else:
+            print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
+            print("Vui lòng nhập đường dẫn thủ công.")
 
     def run(self) -> None:
         while not self.view.should_close():
@@ -140,6 +269,6 @@ class AppController:
             GL.glUseProgram(self.coord_shader.render_idx)
             self.view.draw_coordinate_system(self.coord_system, projection, view)
             
-            self.view.draw_drawables(self.model.drawables)
+            self.view.draw_drawables(self.model.drawables, self.model.hierarchy_objects)
 
             self.view.end_frame()
