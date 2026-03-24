@@ -24,6 +24,38 @@ class AppModel:
         
         self.math_function: str = "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"  # mac dinh
         self.model_filename: str = ""  # For .obj/.ply files
+        self.texture_filename: str = ""  # For texture files
+        self.object_color: Tuple[float, float, float] = (1.0, 0.5, 0.0)  # Default orange color
+        
+        # Object type for conditional components
+        self.object_type: str = "mesh"  # "mesh", "light", "camera"
+        self.selected_hierarchy_idx = -1  # -1 means no hierarchy object selected
+        
+        # Hierarchy objects list - REFACTORED: Each object is now a GameObject with proper structure
+        self.hierarchy_objects = [
+            {
+                "id": 0, "name": "Main Camera", "type": "camera", "selected": False,
+                "transform": {"position": [0.0, 1.0, -10.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
+                "camera_data": {"fov": 60.0, "near": 0.1, "far": 100.0}
+            },
+            {
+                "id": 1, "name": "Directional Light", "type": "light", "selected": False,
+                "transform": {"position": [0.0, 3.0, 0.0], "rotation": [50.0, -30.0, 0.0], "scale": [1.0, 1.0, 1.0]},
+                "light_data": {"intensity": 1.0, "color": [1.0, 1.0, 0.9]}
+            },
+            {
+                "id": 2, "name": "Math Surface", "type": "math", "selected": False,
+                "transform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
+                "math_data": {"function": "(x**2 + y - 11)**2"}
+            }
+        ]
+        self.next_object_id = 4  # For generating unique IDs
+        
+        # Component data for mesh objects
+        self.mesh_components = {
+            "transform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
+            "mesh_renderer": {"shader": 0, "texture": "", "color": [1.0, 0.5, 0.0]}
+        }
 
     @property
     def menu_options(self) -> List[str]:
@@ -194,6 +226,130 @@ class AppModel:
     def set_model_filename(self, filename: str) -> None:
         if filename != self.model_filename:
             self.model_filename = filename
+
+    def set_texture_filename(self, filename: str) -> None:
+        """Set texture file path"""
+        if filename != self.texture_filename:
+            self.texture_filename = filename
+            # Update drawable texture if active drawable exists
+            if self.active_drawable and hasattr(self.active_drawable, 'set_texture'):
+                self.active_drawable.set_texture(filename)
+
+    def set_object_type(self, obj_type: str) -> None:
+        """Set object type: 'mesh', 'light', or 'camera'"""
+        if obj_type in ["mesh", "light", "camera"]:
+            self.object_type = obj_type
+
+    def add_hierarchy_object(self, name: str, obj_type: str) -> None:
+        """Add new object to hierarchy with proper GameObject structure"""
+        new_obj = {
+            "id": self.next_object_id,
+            "name": name,
+            "type": obj_type,
+            "transform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
+        }
+        
+        # Add type-specific components
+        if obj_type == "camera":
+            new_obj["camera"] = {"fov": 45.0, "near": 0.1, "far": 100.0}
+        elif obj_type == "light":
+            new_obj["light_data"] = {"intensity": 1.0, "color": [1.0, 1.0, 1.0]}
+        elif obj_type in ["2d", "3d", "math", "custom_model"]:
+            new_obj["mesh_renderer"] = {"shader_idx": 0, "color": [1.0, 0.5, 0.0]}
+            if obj_type == "math":
+                new_obj["math_data"] = {"function": "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"}
+            elif obj_type == "custom_model":
+                new_obj["model_data"] = {"filename": ""}
+        
+        self.hierarchy_objects.append(new_obj)
+        self.next_object_id += 1
+    
+    def select_hierarchy_object(self, idx: int) -> None:
+        """Select hierarchy object by index"""
+        # Set new selection (no need to clear old selections with new structure)
+        if 0 <= idx < len(self.hierarchy_objects):
+            self.selected_hierarchy_idx = idx
+        else:
+            self.selected_hierarchy_idx = -1
+
+    def select_hierarchy_object(self, idx: int):
+        for i, obj in enumerate(self.hierarchy_objects):
+            obj["selected"] = (i == idx)
+        self.selected_hierarchy_idx = idx
+
+    def get_selected_hierarchy_object(self):
+        if 0 <= self.selected_hierarchy_idx < len(self.hierarchy_objects):
+            return self.hierarchy_objects[self.selected_hierarchy_idx]
+        return None
+
+    def update_object_data(self, obj_id: int, key: str, value):
+        # Tìm object theo ID
+        obj = next((o for o in self.hierarchy_objects if o["id"] == obj_id), None)
+        if not obj: return
+        
+        # Cập nhật giá trị lồng nhau (VD: "transform.position")
+        keys = key.split('.')
+        current = obj
+        for k in keys[:-1]:
+            current = current[k]
+        current[keys[-1]] = value
+        
+        # Kích hoạt vẽ lại nếu sửa phương trình Math
+        if key == "math_data.function":
+            self.math_function = value # Đồng bộ với biến toàn cục cũ (nếu có dùng)
+            self.load_active_drawable()
+    
+    def get_selected_object_components(self):
+        """Get components for currently selected object"""
+        if self.selected_hierarchy_idx == -1:
+            # Mesh object selected - return global components
+            return self.mesh_components
+        else:
+            # Hierarchy object selected - return the object itself (flat structure)
+            selected_obj = self.get_selected_hierarchy_object()
+            if selected_obj:
+                return selected_obj
+            return {}
+    
+    def update_selected_object_data(self, key: str, value) -> None:
+        """Update data for the selected hierarchy object"""
+        if 0 <= self.selected_hierarchy_idx < len(self.hierarchy_objects):
+            # Handle nested key updates (e.g., "transform.position")
+            if "." in key:
+                keys = key.split(".")
+                obj = self.hierarchy_objects[self.selected_hierarchy_idx]
+                for k in keys[:-1]:
+                    obj = obj.setdefault(k, {})
+                obj[keys[-1]] = value
+            else:
+                # Handle direct key updates
+                self.hierarchy_objects[self.selected_hierarchy_idx][key] = value
+            
+            # Special handling for math function or model filename changes
+            selected_obj = self.hierarchy_objects[self.selected_hierarchy_idx]
+            if key == "math_data.function" and selected_obj["type"] == "math":
+                self.math_function = value  # Update global math function for compatibility
+                self.load_active_drawable()
+            elif key == "model_data.filename" and selected_obj["type"] == "custom_model":
+                self.model_filename = value  # Update global model filename for compatibility
+                self.load_active_drawable()
+        else:
+            # If no hierarchy object selected, update mesh components
+            if "." in key:
+                keys = key.split(".")
+                comp = self.mesh_components
+                for k in keys[:-1]:
+                    comp = comp.setdefault(k, {})
+                comp[keys[-1]] = value
+            else:
+                self.mesh_components[key] = value
+
+    def set_color(self, color: Tuple[float, float, float]) -> None:
+        """Set object color from RGB tuple"""
+        self.object_color = color
+        # Update drawable color if active drawable exists
+        if self.active_drawable and hasattr(self.active_drawable, 'set_color'):
+            self.active_drawable.set_color(color)
 
     def reload_current_shape(self) -> None:
         """Reload the current shape"""
