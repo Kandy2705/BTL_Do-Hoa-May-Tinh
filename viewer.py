@@ -78,132 +78,6 @@ class Viewer:
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
         imgui.new_frame()
 
-    def draw_ui(self, model, coord_system):
-        actions = {}
-        win_w, win_h = glfw.get_window_size(self.win)
-        
-        # 1. MAIN MENU BAR (Lồng nhau y hệt Unity)
-        if imgui.begin_main_menu_bar():
-            if imgui.begin_menu("File"):
-                if imgui.menu_item("Import Model")[0]: actions['browse_model_file'] = True
-                if imgui.menu_item("Exit")[0]: glfw.set_window_should_close(self.win, True)
-                imgui.end_menu()
-
-            if imgui.begin_menu("BTL 1"):
-                # Nested Menu: 2D
-                if imgui.begin_menu("2D Shapes"):
-                    original_cat = model.selected_category
-                    model.selected_category = 0 
-                    for idx, name in enumerate(model.menu_options):
-                        if imgui.menu_item(name)[0]:
-                            actions['category_changed'] = 0
-                            actions['shape_changed'] = idx
-                    model.selected_category = original_cat
-                    imgui.end_menu()
-                
-                # Nested Menu: 3D [cite: 34]
-                if imgui.begin_menu("3D Shapes"):
-                    original_cat = model.selected_category
-                    model.selected_category = 1
-                    for idx, name in enumerate(model.menu_options):
-                        if imgui.menu_item(name)[0]:
-                            actions['category_changed'] = 1
-                            actions['shape_changed'] = idx
-                    model.selected_category = original_cat
-                    imgui.end_menu()
-                
-                if imgui.menu_item("Mathematical Surface (z=f(x,y))")[0]:
-                    actions['category_changed'] = 2
-                
-                if imgui.menu_item("Model from file (.obj/.ply)")[0]:
-                    actions['category_changed'] = 3
-
-                if imgui.menu_item("Optimization (SGD)")[0]:
-                    actions['category_changed'] = 4
-                imgui.end_menu()
-
-            if imgui.begin_menu("BTL 2"):
-                # Giả định Category 5 là BTL 2 để tránh trùng với SGD (Category 4)
-                if imgui.menu_item("Setup Road Scene")[0]: actions['category_changed'] = 5 
-                imgui.end_menu()
-            imgui.end_main_menu_bar()
-
-        # 2. HIERARCHY (Chuẩn Unity với Click chuột phải)
-        imgui.set_next_window_position(0, 20)
-        imgui.set_next_window_size(275, win_h - 220)
-        imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        
-        if imgui.tree_node("MainScene", imgui.TREE_NODE_DEFAULT_OPEN):
-            # Selectable chính
-            current_obj_name = model.menu_options[model.selected_idx] if model.selected_idx < len(model.menu_options) else "Unknown"
-            imgui.selectable(f"  {current_obj_name}", True)
-            
-            # Click chuột phải vào Hierarchy để hiện Context Menu
-            if imgui.begin_popup_context_window(res_id="HierarchyContext"):
-                if imgui.begin_menu("Create 2D Object"):
-                    if imgui.menu_item("Triangle")[0]: actions['category_changed'], actions['shape_changed'] = 0, 0
-                    imgui.end_menu()
-                if imgui.begin_menu("Create 3D Object"):
-                    if imgui.menu_item("Cube")[0]: actions['category_changed'], actions['shape_changed'] = 1, 0
-                    imgui.end_menu()
-                imgui.end_popup()
-                
-            imgui.tree_pop()
-        imgui.end()
-
-        # 3. INSPECTOR (Bên phải - Hiển thị thuộc tính)
-        imgui.set_next_window_position(win_w - 320, 20)
-        imgui.set_next_window_size(320, win_h - 20)
-        imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        
-        # Tiêu đề object
-        imgui.checkbox("##active", True); imgui.same_line()
-        imgui.text_colored(current_obj_name, 1, 1, 1, 1)
-        imgui.separator()
-
-        # Component Transform (Luôn hiển thị)
-        if imgui.collapsing_header("Transform", imgui.TREE_NODE_DEFAULT_OPEN):
-            imgui.drag_float3("Position", 0.0, 0.0, 0.1)
-            imgui.drag_float3("Rotation", 0.0, 0.0, 1.0)
-            imgui.drag_float3("Scale", 1.0, 1.0, 0.1)
-
-        # Component: Mathematical Surface Setting (Dành riêng cho Category 2) [cite: 35]
-        if model.selected_category == 2: 
-            if imgui.collapsing_header("Mathematical Surface Setting", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.text("Nhap phuong trinh z = f(x, y):")
-                
-                imgui.push_item_width(-1) # Làm ô nhập liệu dài ra hết cỡ
-                # Ô input_text lấy giá trị từ model.math_function
-                changed, new_func = imgui.input_text("##fxy", model.math_function, 256)
-                if changed:
-                    # Gửi tín hiệu thay đổi về cho Controller
-                    actions['math_function_changed'] = new_func
-                imgui.pop_item_width()
-
-        # Component: Model Loader (Category 3)
-        if model.selected_category == 3:
-            if imgui.collapsing_header("Model Loader", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.text(f"File: {model.model_filename}")
-                if imgui.button("Change Model"): actions['browse_model_file'] = True
-
-        # Component: BTL 2 (Category 5) [cite: 131, 212]
-        if model.selected_category == 5:
-            if imgui.collapsing_header("Synthetic Data Generator", imgui.TREE_NODE_DEFAULT_OPEN):
-                if imgui.button("Capture RGB/Depth", width=-1): pass
-                imgui.button("Export Labels (COCO)", width=-1)
-
-        imgui.end()
-
-        # 4. PROJECT & CONSOLE (Phần dưới)
-        imgui.set_next_window_position(0, win_h - 200)
-        imgui.set_next_window_size(win_w - 320, 200)
-        imgui.begin("Project", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        imgui.text("Assets > Models"); imgui.separator()
-        imgui.text(f"Current Mesh: {model.model_filename}")
-        imgui.end()
-
-        return actions
-
     def end_frame(self) -> None:
         imgui.render()
         self.imgui_impl.render(imgui.get_draw_data())
@@ -229,12 +103,11 @@ class Viewer:
         
         # 1. MAIN MENU BAR (Lồng nhau y hệt Unity)
         if imgui.begin_main_menu_bar():
-            if imgui.begin_menu("Tap tin"):
-                if imgui.menu_item("Nap Model (.obj/.ply)")[0]: actions['browse_model_file'] = True
-                if imgui.menu_item("Thoat")[0]: glfw.set_window_should_close(self.win, True)
+            if imgui.begin_menu("File"):
+                if imgui.menu_item("Import Model")[0]: actions['browse_model_file'] = True
+                if imgui.menu_item("Exit")[0]: glfw.set_window_should_close(self.win, True)
                 imgui.end_menu()
 
-            # Menu BTL 1: Hình học & Khoa học
             if imgui.begin_menu("BTL 1"):
                 if imgui.begin_menu("2D Shapes"):
                     original_cat = model.selected_category
@@ -243,7 +116,7 @@ class Viewer:
                         if imgui.menu_item(name)[0]:
                             actions['category_changed'] = 0
                             actions['shape_changed'] = idx
-                    model.selected_category = original_cat # Trả lại category cũ
+                    model.selected_category = original_cat
                     imgui.end_menu()
                 
                 if imgui.begin_menu("3D Shapes"):
@@ -279,7 +152,6 @@ class Viewer:
                     imgui.end_menu()
                 imgui.end_menu()
 
-            # Menu BTL 2: Cảnh xe chạy
             if imgui.begin_menu("BTL 2"):
                 if imgui.menu_item("Setup Road Scene")[0]: actions['category_changed'] = 4
                 if imgui.begin_menu("Add Traffic Object"):
@@ -290,17 +162,35 @@ class Viewer:
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
-        # 2. HIERARCHY (Chuẩn Unity với Click chuột phải)
+        # 2. THANH CÔNG CỤ VIEWPORT (2D/3D, Wireframe, Grid)
+        imgui.set_next_window_position(275, 20)
+        imgui.set_next_window_size(win_w - 595, 35)
+        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
+        imgui.begin("ViewportToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
+        
+        imgui.same_line()
+        # Nút bật/tắt Wireframe
+        if imgui.button(" Wireframe", 85, 22):
+            self.cycle_polygon_mode()
+            
+        imgui.same_line()
+        # Nút bật/tắt Lưới tọa độ (Grid)
+        grid_status = "Grid: On" if coord_system.visible else "Grid: Off"
+        if imgui.button(grid_status, 85, 22):
+            actions['toggle_coord_system'] = True
+            
+        imgui.end()
+        imgui.pop_style_color()
+
+        # 3. BẢNG HIERARCHY (Bên trái)
         imgui.set_next_window_position(0, 20)
         imgui.set_next_window_size(275, win_h - 220)
         imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        
         if imgui.tree_node("Objects", imgui.TREE_NODE_DEFAULT_OPEN):
-            # Selectable chính: Object đang được vẽ
-            current_obj_name = model.menu_options[model.selected_idx]
-            _, selected = imgui.selectable(f" {current_obj_name}", True)
+            current_obj_name = model.menu_options[model.selected_idx] if model.selected_idx < len(model.menu_options) else "Unknown"
+            imgui.selectable(f"  {current_obj_name}", True)
             
-            # Click chuột phải vào vùng trống Hierarchy
+            # Menu chuột phải để tạo nhanh Object
             if imgui.begin_popup_context_window():
                 if imgui.begin_menu("Create 2D Object"):
                     if imgui.menu_item("Triangle")[0]: actions['category_changed'], actions['shape_changed'] = 0, 0
@@ -317,12 +207,11 @@ class Viewer:
             imgui.tree_pop()
         imgui.end()
 
-        # 3. INSPECTOR (Hiện thông số theo Object)
+        # 4. BẢNG INSPECTOR (Bên phải - Chỉnh sửa thuộc tính)
         imgui.set_next_window_position(win_w - 320, 20)
         imgui.set_next_window_size(320, win_h - 20)
         imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
-        # Header Object
         imgui.checkbox("##active", True); imgui.same_line()
         imgui.text_colored(model.menu_options[model.selected_idx], 1, 1, 1, 1)
         imgui.separator()
@@ -344,6 +233,11 @@ class Viewer:
             if imgui.collapsing_header("Synthetic Data Gen", imgui.TREE_NODE_DEFAULT_OPEN):
                 imgui.button("Export COCO JSON", width=-1)
                 imgui.button("Generate Depth Map", width=-1)
+
+        # Chế độ dựng hình & Shader
+        if imgui.collapsing_header("Mesh Renderer", imgui.TREE_NODE_DEFAULT_OPEN):
+            changed_shader, new_shader = imgui.combo("Shader", model.selected_shader, model.shader_names)
+            if changed_shader: actions['shader_changed'] = new_shader
 
         # Component đặc thù cho SGD [cite: 81]
         if model.selected_category == 2:
