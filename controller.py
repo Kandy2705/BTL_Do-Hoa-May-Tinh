@@ -100,6 +100,16 @@ class AppController:
             self.model.set_texture_filename("")
             print("Texture cleared")
         
+        # Handle texture for specific hierarchy objects
+        if 'browse_texture_for_object' in actions:
+            obj_id = actions['browse_texture_for_object']['obj_id']
+            self._browse_texture_for_specific_object(obj_id)
+        
+        if 'clear_texture' in actions and 'obj_id' in actions['clear_texture']:
+            obj_id = actions['clear_texture']['obj_id']
+            self.model.update_object_data(obj_id, "mesh_renderer.texture_filename", "")
+            print(f"Texture cleared for object {obj_id}")
+        
         # Add Light and Camera actions
         if 'add_light' in actions:
             light_count = len([obj for obj in self.model.hierarchy_objects if obj["type"] == "light"])
@@ -208,13 +218,42 @@ class AppController:
                 if result.returncode == 0 and result.stdout.strip():
                     filename = result.stdout.strip()
                     self.model.set_texture_filename(filename)
-                    print(f"Đã chọn texture: {filename}")
+                    print(f"Đã chọn file texture: {filename}")
                 else:
-                    print("Đã hủy chọn texture.")
+                    print("Đã hủy chọn file.")
             except Exception as e:
                 print(f"Lỗi khi mở hộp thoại Mac: {e}")
         else:
             print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
+            print("Vui lòng nhập đường dẫn thủ công.")
+
+    def _browse_model_file(self):
+        """Open file browser for model files using macOS native dialog"""
+        import platform
+        import subprocess
+
+        if platform.system() == "Darwin":
+            try:
+                script = '''
+                try
+                    set chosen_file to choose file with prompt "Select 3D Model File (.obj, .ply):"
+                    POSIX path of chosen_file
+                end try
+                '''
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    filename = result.stdout.strip()
+                    self.model.set_model_filename(filename)
+                    self.model.load_active_drawable()
+                    print(f"Đã chọn file model: {filename}")
+                else:
+                    print("Đã hủy chọn file.")
+            except Exception as e:
+                print(f"Lỗi khi mở hộp thoại Mac: {e}")
+        else:
+            print("Tính năng chọn model hiện chỉ hỗ trợ giao diện native trên macOS.")
+            print("Vui lòng nhập đường dẫn thủ công.")
 
     def _browse_model_for_specific_object(self, obj_id):
         """Browse model file for specific hierarchy object"""
@@ -242,6 +281,34 @@ class AppController:
                 print(f"Lỗi khi mở hộp thoại Mac: {e}")
         else:
             print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
+            print("Vui lòng nhập đường dẫn thủ công.")
+
+    def _browse_texture_for_specific_object(self, obj_id):
+        """Browse texture file for specific hierarchy object"""
+        import platform
+        import subprocess
+
+        if platform.system() == "Darwin":
+            try:
+                script = f'''
+                try
+                    set chosen_file to choose file with prompt "Select Texture File for Object {obj_id} (.png, .jpg, .tga):"
+                    POSIX path of chosen_file
+                end try
+                '''
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    filename = result.stdout.strip()
+                    # Update the specific object's mesh renderer data
+                    self.model.update_object_data(obj_id, "mesh_renderer.texture_filename", filename)
+                    print(f"Đã chọn texture cho object {obj_id}: {filename}")
+                else:
+                    print("Đã hủy chọn file.")
+            except Exception as e:
+                print(f"Lỗi khi mở hộp thoại Mac: {e}")
+        else:
+            print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
             print("Vui lòng nhập đường dẫn thủ công.")
 
     def run(self) -> None:

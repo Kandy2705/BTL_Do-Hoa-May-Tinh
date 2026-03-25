@@ -354,3 +354,51 @@ class AppModel:
     def reload_current_shape(self) -> None:
         """Reload the current shape"""
         self.load_active_drawable()
+
+    def get_hierarchy_drawables(self) -> List[Any]:
+        """Create drawable objects for hierarchy objects"""
+        hierarchy_drawables = []
+        
+        for obj in self.hierarchy_objects:
+            if obj["type"] in ["3d", "math", "custom_model"]:
+                try:
+                    # Determine shape type and create appropriate drawable
+                    if obj["type"] == "3d":
+                        # Use the first 3D shape (Cube) as default
+                        module_name, class_name = self._shape_factories()[4]  # Cube is at index 4 when category 1
+                        module = importlib.import_module(module_name)
+                        shape_cls = getattr(module, class_name)
+                        drawable = shape_cls()
+                        
+                    elif obj["type"] == "math":
+                        # Use math surface
+                        module_name, class_name = self._shape_factories()[0]  # First math surface
+                        module = importlib.import_module(module_name)
+                        shape_cls = getattr(module, class_name)
+                        drawable = shape_cls(self.math_function)
+                        
+                    elif obj["type"] == "custom_model":
+                        # Use model loader
+                        module_name, class_name = self._shape_factories()[0]  # First model
+                        module = importlib.import_module(module_name)
+                        shape_cls = getattr(module, class_name)
+                        drawable = shape_cls(self.model_filename)
+                    
+                    # Apply transform
+                    if hasattr(drawable, 'set_transform'):
+                        drawable.set_transform(
+                            obj["transform"]["position"],
+                            obj["transform"]["rotation"], 
+                            obj["transform"]["scale"]
+                        )
+                    
+                    # Apply color if mesh renderer exists
+                    if "mesh_renderer" in obj and hasattr(drawable, 'set_color'):
+                        drawable.set_color(obj["mesh_renderer"]["color"])
+                        
+                    hierarchy_drawables.append(drawable)
+                    
+                except Exception as e:
+                    print(f"[AppModel] Failed to create drawable for {obj['name']}: {e}")
+                    
+        return hierarchy_drawables
