@@ -7,9 +7,9 @@ from libs.transform import Trackball
 from PIL import Image
 
 # Import UI components
-from main_menu import MainMenu
-from hierarchy_panel import HierarchyPanel
-from inspector_panel import InspectorPanel
+from components.main_menu import MainMenu
+from components.hierarchy_panel import HierarchyPanel
+from components.inspector_panel import InspectorPanel
 
 class Viewer:
     def __init__(self, width=1280, height=720):
