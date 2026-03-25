@@ -6,6 +6,11 @@ import itertools
 from libs.transform import Trackball
 from PIL import Image
 
+# Import UI components
+from main_menu import MainMenu
+from hierarchy_panel import HierarchyPanel
+from inspector_panel import InspectorPanel
+
 class Viewer:
     def __init__(self, width=1280, height=720):
         glfw.init()
@@ -166,91 +171,37 @@ class Viewer:
             coord_system.draw(projection, view)
 
     def draw_ui(self, model, coord_system):
+        """Draw UI using components"""
         actions = {}
         win_w, win_h = glfw.get_window_size(self.win)
         
-        # 1. MAIN MENU BAR (Lồng nhau y hệt Unity)
-        if imgui.begin_main_menu_bar():
-            if imgui.begin_menu("File"):
-                if imgui.menu_item("Import Model")[0]: actions['browse_model_file'] = True
-                if imgui.menu_item("Exit")[0]: glfw.set_window_should_close(self.win, True)
-                imgui.end_menu()
-
-            if imgui.begin_menu("BTL 1"):
-                if imgui.begin_menu("2D Shapes"):
-                    original_cat = model.selected_category
-                    model.selected_category = 0 
-                    for idx, name in enumerate(model.menu_options):
-                        if imgui.menu_item(name)[0]:
-                            actions['category_changed'] = 0
-                            actions['shape_changed'] = idx
-                    model.selected_category = original_cat
-                    imgui.end_menu()
-                
-                if imgui.begin_menu("3D Shapes"):
-                    original_cat = model.selected_category
-                    model.selected_category = 1
-                    for idx, name in enumerate(model.menu_options):
-                        if imgui.menu_item(name)[0]:
-                            actions['category_changed'] = 1
-                            actions['shape_changed'] = idx
-                    model.selected_category = original_cat
-                    imgui.end_menu()
-                
-                if imgui.begin_menu("Mathematical Surface"):
-                    if imgui.menu_item("Z = f(x,y)")[0]:
-                        actions['category_changed'] = 2
-                        actions['shape_changed'] = 0
-                    imgui.end_menu()
-                
-                if imgui.begin_menu("Model from file"):
-                    if imgui.menu_item("Model from .obj/.ply file")[0]:
-                        actions['category_changed'] = 3
-                        actions['shape_changed'] = 0
-                    imgui.end_menu()
-                
-                if imgui.begin_menu("Optimization (SGD)"):
-                    original_cat = model.selected_category
-                    model.selected_category = 4
-                    for idx, name in enumerate(model.menu_options):
-                        if imgui.menu_item(name)[0]:
-                            actions['category_changed'] = 4
-                            actions['shape_changed'] = idx
-                    model.selected_category = original_cat
-                    imgui.end_menu()
-                imgui.end_menu()
-
-            if imgui.begin_menu("BTL 2"):
-                if imgui.menu_item("Setup Road Scene")[0]: actions['category_changed'] = 4
-                if imgui.begin_menu("Add Traffic Object"):
-                    if imgui.menu_item("Main Vehicle")[0]: pass
-                    if imgui.menu_item("Pedestrian")[0]: pass
-                    if imgui.menu_item("Traffic Light")[0]: pass
-                    imgui.end_menu()
-                imgui.end_menu()
-            imgui.end_main_menu_bar()
-
-        # 2. THANH CÔNG CỤ VIEWPORT (2D/3D, Wireframe, Grid)
+        # 1. MAIN MENU BAR
+        menu_actions = MainMenu.draw(model)
+        actions.update(menu_actions)
+        
+        # 2. THANH CÔNG CỤ VIEWPORT
         imgui.set_next_window_position(275 + 40, 20)
         imgui.set_next_window_size(win_w - 595 - 40, 35)
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
         imgui.begin("ViewportToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
         
         imgui.same_line()
-        # Nút bật/tắt Wireframe
         if imgui.button(" Wireframe", 85, 22):
             self.cycle_polygon_mode()
             
         imgui.same_line()
-        # Nút bật/tắt Lưới tọa độ (Grid)
         grid_status = "Grid: On" if coord_system.visible else "Grid: Off"
         if imgui.button(grid_status, 85, 22):
             actions['toggle_coord_system'] = True
             
+        imgui.same_line()
+        if imgui.button(" Shaded", 85, 22):
+            print("Đã chọn Shaded Mode")
+            
         imgui.end()
         imgui.pop_style_color()
 
-        # 3. BẢNG HIERARCHY (Bên trái)
+        # 3. THANH CÔNG CỤ TRANSFORM TOOLS (Giữ nguyên code gốc)
         imgui.set_next_window_position(275, 20)
         imgui.set_next_window_size(40, win_h - 220)
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
@@ -274,226 +225,15 @@ class Viewer:
         imgui.end()
         imgui.pop_style_color()
 
-        # 4. BẢNG HIERARCHY (Bên trái)
-        imgui.set_next_window_position(0, 20)
-        imgui.set_next_window_size(275, win_h - 220)
-        imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
+        # 4. HIERARCHY PANEL
+        hierarchy_actions = HierarchyPanel.draw(model)
+        actions.update(hierarchy_actions)
         
-        # Menu chuột phải cho toàn bộ Hierarchy window
-        if imgui.begin_popup_context_window():
-            if imgui.begin_menu("Add 2D Object"):
-                original_cat = model.selected_category
-                model.selected_category = 0 
-                for idx, name in enumerate(model.menu_options):
-                    if imgui.menu_item(name)[0]:
-                        # Add hierarchy object instead of changing category
-                        obj_name = f"2D_{name}"
-                        model.add_hierarchy_object(obj_name, "2d")
-                        model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
-                model.selected_category = original_cat
-                imgui.end_menu()
-            if imgui.begin_menu("Add 3D Object"):
-                original_cat = model.selected_category
-                model.selected_category = 1
-                for idx, name in enumerate(model.menu_options):
-                    if imgui.menu_item(name)[0]:
-                        # Add hierarchy object instead of changing category
-                        obj_name = f"3D_{name}"
-                        model.add_hierarchy_object(obj_name, "3d")
-                        model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
-                model.selected_category = original_cat
-                imgui.end_menu()
-            if imgui.begin_menu("Add Mathematical Surface"):
-                if imgui.menu_item("Z = f(x,y)")[0]:
-                    obj_name = "Math Surface"
-                    model.add_hierarchy_object(obj_name, "math")
-                    model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
-                imgui.end_menu()
-            if imgui.begin_menu("Add Model from file"):
-                if imgui.menu_item("Model from .obj/.ply file")[0]:
-                    obj_name = "Custom Model"
-                    model.add_hierarchy_object(obj_name, "custom_model")
-                    model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
-                imgui.end_menu()
-            if imgui.begin_menu("Add Light"):
-                if imgui.menu_item("Light")[0]: 
-                    actions['add_light'] = True
-                imgui.end_menu()
-            if imgui.begin_menu("Add Camera"):
-                if imgui.menu_item("Camera")[0]: 
-                    actions['add_camera'] = True
-                imgui.end_menu()
-            imgui.separator()
-            imgui.menu_item("Delete")
-            imgui.end_popup()
+        # 5. INSPECTOR PANEL
+        inspector_actions = InspectorPanel.draw(model, self.cube_texture_id)
+        actions.update(inspector_actions)
         
-        if imgui.tree_node("MainScene", imgui.TREE_NODE_DEFAULT_OPEN):
-            for i, obj in enumerate(model.hierarchy_objects):
-                # BẮT BUỘC PHẢI TÁCH TUPLE Ở ĐÂY để không bị lỗi dính object cuối cùng
-                clicked, state = imgui.selectable(f"{obj['name']}##{obj['id']}", obj.get("selected", False))
-                if clicked:
-                    actions['select_hierarchy_object'] = i
-            imgui.tree_pop()
-
-        imgui.end()
-
-        # --- BẢNG INSPECTOR (Bên phải) ---
-        imgui.set_next_window_position(win_w - 320, 20)
-        imgui.set_next_window_size(320, win_h - 20)
-        imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        
-        selected_obj = model.get_selected_hierarchy_object()
-        
-        if not selected_obj:
-            imgui.text_disabled("No Object Selected")
-        else:
-            obj_id = selected_obj.get("id", 0)
-            obj_type = selected_obj.get("type", "unknown")
-            obj_name = selected_obj.get("name", "Unknown")
-            obj_data = selected_obj  # Dùng chung dictionary
-            
-            # --- HEADER ---
-            imgui.checkbox("##active", True); imgui.same_line()
-            icon = self.cube_texture_id
-            imgui.image(icon, 16, 16)
-            imgui.same_line()
-            imgui.text_colored(f"{obj_name}", 1.0, 1.0, 1.0, 1.0)
-            imgui.separator()
-            
-            # --- COMPONENT: TRANSFORM (Luôn có) ---
-            transform = obj_data.get("transform", {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]})
-            if imgui.collapsing_header("Transform", imgui.TREE_NODE_DEFAULT_OPEN):
-                imgui.columns(2, "trans_layout", False)
-                imgui.set_column_width(0, 80)
-                
-                # Position
-                imgui.text("Position"); imgui.next_column()
-                imgui.push_item_width(-1)
-                changed_pos, new_pos = imgui.drag_float3(f"##pos_{obj_id}", transform["position"][0], transform["position"][1], transform["position"][2], 0.1)
-                if changed_pos: actions['update_transform_pos'] = {'obj_id': obj_id, 'value': list(new_pos)}
-                imgui.pop_item_width(); imgui.next_column()
-                
-                # Rotation
-                imgui.text("Rotation"); imgui.next_column()
-                imgui.push_item_width(-1)
-                changed_rot, new_rot = imgui.drag_float3(f"##rot_{obj_id}", transform["rotation"][0], transform["rotation"][1], transform["rotation"][2], 1.0)
-                if changed_rot: actions['update_transform_rot'] = {'obj_id': obj_id, 'value': list(new_rot)}
-                imgui.pop_item_width(); imgui.next_column()
-                
-                # Scale
-                imgui.text("Scale"); imgui.next_column()
-                imgui.push_item_width(-1)
-                changed_sca, new_sca = imgui.drag_float3(f"##sca_{obj_id}", transform["scale"][0], transform["scale"][1], transform["scale"][2], 0.1)
-                if changed_sca: actions['update_transform_scale'] = {'obj_id': obj_id, 'value': list(new_sca)}
-                imgui.pop_item_width(); imgui.next_column()
-                
-                # QUAN TRỌNG: Phải đóng cột trước khi kết thúc khối Transform để các Component sau không bị thụt lề
-                imgui.columns(1)
-
-            # --- DYNAMIC COMPONENTS: MATH SCRIPT ---
-            if obj_type == "math":
-                math_data = obj_data.get("math_data", {"function": "(x**2 + y - 11)**2"})
-                if imgui.collapsing_header("Math Script", imgui.TREE_NODE_DEFAULT_OPEN):
-                    imgui.text("z = f(x, y):")
-                    imgui.push_item_width(-1)
-                    changed_func, new_func = imgui.input_text(f"##fxy_{obj_id}", math_data.get("function", ""), 256)
-                    if changed_func: actions['update_math_function'] = {"obj_id": obj_id, "value": new_func}
-                    imgui.pop_item_width()
-                    
-            # --- DYNAMIC COMPONENTS: MESH RENDERER ---
-            if obj_type in ["2d", "3d", "math", "custom_model", "mesh"]:
-                mesh_renderer = obj_data.get("mesh_renderer", {"shader_idx": 0, "color": [1.0, 0.5, 0.0]})
-                if imgui.collapsing_header("Mesh Renderer", imgui.TREE_NODE_DEFAULT_OPEN):
-                    imgui.columns(2, "mesh_cols", False)
-                    imgui.set_column_width(0, 80)
-                    
-                    imgui.text("Shader"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    current_shader = mesh_renderer.get("shader_idx", 0)
-                    changed_shader, new_shader = imgui.combo(f"##shader_{obj_id}", current_shader, model.shader_names)
-                    if changed_shader: 
-                        actions['update_mesh_shader'] = {"obj_id": obj_id, "value": new_shader}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.text("Color"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    current_color = mesh_renderer.get("color", [1.0, 0.5, 0.0])
-                    changed_color, new_color = imgui.color_edit3(f"##color_{obj_id}", *current_color)
-                    if changed_color: 
-                        actions['update_mesh_color'] = {"obj_id": obj_id, "value": list(new_color)}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.text("Texture"); imgui.next_column()
-                    current_texture = mesh_renderer.get("texture_filename", "")
-                    if imgui.button(f"Browse##texture_browse_{obj_id}"):
-                        actions['browse_texture_for_object'] = {"obj_id": obj_id}
-                    imgui.same_line()
-                    if current_texture:
-                        if imgui.button(f"Clear##texture_clear_{obj_id}"):
-                            actions['clear_texture'] = {"obj_id": obj_id}
-                    imgui.next_column()
-                    
-                    if current_texture:
-                        imgui.text("")  # Empty label column
-                        imgui.next_column()
-                        imgui.text(current_texture)
-                        imgui.next_column()
-                    
-                    imgui.columns(1)
-
-            
-            # --- DYNAMIC COMPONENTS: LIGHT SETTINGS ---
-            elif obj_type == "light":
-                light_data = obj_data.get("light_data", {"intensity": 1.0, "color": [1.0, 1.0, 1.0]})
-                if imgui.collapsing_header("Light Settings", imgui.TREE_NODE_DEFAULT_OPEN):
-                    imgui.columns(2, "light_cols", False)
-                    imgui.set_column_width(0, 80)
-                    
-                    imgui.text("Intensity"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    changed_intensity, new_intensity = imgui.drag_float(f"##intensity_{obj_id}", light_data.get("intensity", 1.0), 0.1, 10.0)
-                    if changed_intensity: actions['update_light_intensity'] = {"obj_id": obj_id, "value": new_intensity}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.text("Color"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    current_light_color = light_data.get("color", [1.0, 1.0, 1.0])
-                    changed_light_color, new_light_color = imgui.color_edit3(f"##light_color_{obj_id}", *current_light_color)
-                    if changed_light_color: actions['update_light_color'] = {"obj_id": obj_id, "value": list(new_light_color)}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.columns(1)
-                    
-            # --- DYNAMIC COMPONENTS: CAMERA SETTINGS ---
-            elif obj_type == "camera":
-                camera_data = obj_data.get("camera_data", {"fov": 60.0, "near": 0.1, "far": 100.0})
-                if imgui.collapsing_header("Camera Settings", imgui.TREE_NODE_DEFAULT_OPEN):
-                    imgui.columns(2, "cam_cols", False)
-                    imgui.set_column_width(0, 80)
-                    
-                    imgui.text("FOV"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    changed_fov, new_fov = imgui.slider_float(f"##fov_{obj_id}", camera_data.get("fov", 60.0), 10.0, 120.0)
-                    if changed_fov: actions['update_camera_fov'] = {"obj_id": obj_id, "value": new_fov}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.text("Near"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    changed_near, new_near = imgui.drag_float(f"##near_{obj_id}", camera_data.get("near", 0.1), 0.01, 10.0)
-                    if changed_near: actions['update_camera_near'] = {"obj_id": obj_id, "value": new_near}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.text("Far"); imgui.next_column()
-                    imgui.push_item_width(-1)
-                    changed_far, new_far = imgui.drag_float(f"##far_{obj_id}", camera_data.get("far", 100.0), 1.0, 1000.0)
-                    if changed_far: actions['update_camera_far'] = {"obj_id": obj_id, "value": new_far}
-                    imgui.pop_item_width(); imgui.next_column()
-                    
-                    imgui.columns(1)
-
-        imgui.end()
-
-        # 4. PROJECT & CONSOLE (Giữ nguyên layout dưới)
+        # 6. PROJECT & CONSOLE
         imgui.set_next_window_position(0, win_h - 200)
         imgui.set_next_window_size(win_w - 320, 200)
         imgui.begin("Project", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
@@ -501,5 +241,5 @@ class Viewer:
         if imgui.button("Import Model"): actions['browse_model_file'] = True
         imgui.text(f"Active: {model.model_filename}")
         imgui.end()
-
+        
         return actions
