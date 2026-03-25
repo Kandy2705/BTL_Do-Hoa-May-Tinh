@@ -110,11 +110,50 @@ class Viewer:
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
         
+        # Draw regular drawables (mesh objects)
+        for drawable in drawables:
+            drawable.draw(projection, view, None)
+        
+        # Draw hierarchy objects
+        hierarchy_drawables = []
         for i, obj in enumerate(hierarchy_objects):
             if obj["type"] in ["3d", "math", "custom_model"]:
-                pos = obj["transform"]["position"]
-                rot = obj["transform"]["rotation"]
-                sca = obj["transform"]["scale"]
+                # Create drawable for this hierarchy object
+                try:
+                    if obj["type"] == "3d":
+                        # Import and create Cube as default 3D object
+                        from geometry import cube3d
+                        drawable = cube3d.Cube("./shaders/basic.vert", "./shaders/basic.frag")
+                        
+                    elif obj["type"] == "math":
+                        # Skip Math Surface for now - focus on texture UI
+                        continue
+                        
+                    elif obj["type"] == "custom_model":
+                        # Import and create Model Loader
+                        from geometry import model_loader3d
+                        drawable = model_loader3d.ModelLoader("")
+                    
+                    # Apply transform if drawable supports it
+                    if hasattr(drawable, 'set_transform'):
+                        drawable.set_transform(
+                            obj["transform"]["position"],
+                            obj["transform"]["rotation"],
+                            obj["transform"]["scale"]
+                        )
+                    
+                    # Apply color if mesh renderer exists
+                    if "mesh_renderer" in obj and hasattr(drawable, 'set_color'):
+                        drawable.set_color(obj["mesh_renderer"]["color"])
+                    
+                    hierarchy_drawables.append(drawable)
+                    
+                except Exception as e:
+                    print(f"Failed to create drawable for {obj['name']}: {e}")
+        
+        # Draw all hierarchy objects
+        for drawable in hierarchy_drawables:
+            drawable.draw(projection, view, None)
                 
                 
 
@@ -247,8 +286,10 @@ class Viewer:
                 model.selected_category = 0 
                 for idx, name in enumerate(model.menu_options):
                     if imgui.menu_item(name)[0]:
-                        actions['category_changed'] = 0
-                        actions['shape_changed'] = idx
+                        # Add hierarchy object instead of changing category
+                        obj_name = f"2D_{name}"
+                        model.add_hierarchy_object(obj_name, "2d")
+                        model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 model.selected_category = original_cat
                 imgui.end_menu()
             if imgui.begin_menu("Add 3D Object"):
@@ -256,19 +297,23 @@ class Viewer:
                 model.selected_category = 1
                 for idx, name in enumerate(model.menu_options):
                     if imgui.menu_item(name)[0]:
-                        actions['category_changed'] = 1
-                        actions['shape_changed'] = idx
+                        # Add hierarchy object instead of changing category
+                        obj_name = f"3D_{name}"
+                        model.add_hierarchy_object(obj_name, "3d")
+                        model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 model.selected_category = original_cat
                 imgui.end_menu()
             if imgui.begin_menu("Add Mathematical Surface"):
                 if imgui.menu_item("Z = f(x,y)")[0]:
-                    actions['category_changed'] = 2
-                    actions['shape_changed'] = 0
+                    obj_name = "Math Surface"
+                    model.add_hierarchy_object(obj_name, "math")
+                    model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 imgui.end_menu()
             if imgui.begin_menu("Add Model from file"):
                 if imgui.menu_item("Model from .obj/.ply file")[0]:
-                    actions['category_changed'] = 3
-                    actions['shape_changed'] = 0
+                    obj_name = "Custom Model"
+                    model.add_hierarchy_object(obj_name, "custom_model")
+                    model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 imgui.end_menu()
             if imgui.begin_menu("Add Light"):
                 if imgui.menu_item("Light")[0]: 
@@ -345,6 +390,16 @@ class Viewer:
                 # QUAN TRỌNG: Phải đóng cột trước khi kết thúc khối Transform để các Component sau không bị thụt lề
                 imgui.columns(1)
 
+            # --- DYNAMIC COMPONENTS: MATH SCRIPT ---
+            if obj_type == "math":
+                math_data = obj_data.get("math_data", {"function": "(x**2 + y - 11)**2"})
+                if imgui.collapsing_header("Math Script", imgui.TREE_NODE_DEFAULT_OPEN):
+                    imgui.text("z = f(x, y):")
+                    imgui.push_item_width(-1)
+                    changed_func, new_func = imgui.input_text(f"##fxy_{obj_id}", math_data.get("function", ""), 256)
+                    if changed_func: actions['update_math_function'] = {"obj_id": obj_id, "value": new_func}
+                    imgui.pop_item_width()
+                    
             # --- DYNAMIC COMPONENTS: MESH RENDERER ---
             if obj_type in ["2d", "3d", "math", "custom_model", "mesh"]:
                 mesh_renderer = obj_data.get("mesh_renderer", {"shader_idx": 0, "color": [1.0, 0.5, 0.0]})
@@ -368,17 +423,24 @@ class Viewer:
                         actions['update_mesh_color'] = {"obj_id": obj_id, "value": list(new_color)}
                     imgui.pop_item_width(); imgui.next_column()
                     
+                    imgui.text("Texture"); imgui.next_column()
+                    current_texture = mesh_renderer.get("texture_filename", "")
+                    if imgui.button(f"Browse##texture_browse_{obj_id}"):
+                        actions['browse_texture_for_object'] = {"obj_id": obj_id}
+                    imgui.same_line()
+                    if current_texture:
+                        if imgui.button(f"Clear##texture_clear_{obj_id}"):
+                            actions['clear_texture'] = {"obj_id": obj_id}
+                    imgui.next_column()
+                    
+                    if current_texture:
+                        imgui.text("")  # Empty label column
+                        imgui.next_column()
+                        imgui.text(current_texture)
+                        imgui.next_column()
+                    
                     imgui.columns(1)
 
-            # --- DYNAMIC COMPONENTS: MATH SCRIPT ---
-            if obj_type == "math":
-                math_data = obj_data.get("math_data", {"function": "(x**2 + y - 11)**2"})
-                if imgui.collapsing_header("Math Script", imgui.TREE_NODE_DEFAULT_OPEN):
-                    imgui.text("z = f(x, y):")
-                    imgui.push_item_width(-1)
-                    changed_func, new_func = imgui.input_text(f"##fxy_{obj_id}", math_data.get("function", ""), 256)
-                    if changed_func: actions['update_math_function'] = {"obj_id": obj_id, "value": new_func}
-                    imgui.pop_item_width()
             
             # --- DYNAMIC COMPONENTS: LIGHT SETTINGS ---
             elif obj_type == "light":
