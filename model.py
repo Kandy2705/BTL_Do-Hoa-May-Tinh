@@ -12,7 +12,7 @@ ShaderPaths = Tuple[str, str]
 
 
 def _default_shader_paths() -> ShaderPaths:
-    return ("./shaders/color_interp.vert", "./shaders/color_interp.frag")
+    return ("./shaders/standard.vert", "./shaders/standard.frag")
 
 
 class AppModel:
@@ -34,6 +34,8 @@ class AppModel:
         # Object type for conditional components
         self.object_type: str = "mesh"  # "mesh", "light", "camera"
         self.selected_hierarchy_idx = -1  # -1 means no hierarchy object selected
+
+        self.object_color: Tuple[float, float, float] = (1.0, 1.0, 1.0)  # Default white color
 
         self.active_tool = 'select'
         
@@ -244,8 +246,8 @@ class AppModel:
             new_obj = GameObjectOBJ(name)
             
             # Tạo drawable theo shape_name
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             # Import các class shape 3D
             import sys
@@ -388,22 +390,38 @@ class AppModel:
             return self.hierarchy_objects[self.selected_hierarchy_idx]
         return None
 
-    def update_object_data(self, obj_id: int, key: str, value):
-        # Tìm object theo ID
-        obj = next((o for o in self.hierarchy_objects if o["id"] == obj_id), None)
-        if not obj: return
+    def update_object_data(self, obj_id: int, key_path: str, value: Any) -> None:
+        object_idx = next((i for i, o in enumerate(self.scene.objects) if o.id == obj_id), -1)
         
-        # Cập nhật giá trị lồng nhau (VD: "transform.position")
-        keys = key.split('.')
-        current = obj
-        for k in keys[:-1]:
-            current = current[k]
-        current[keys[-1]] = value
-        
-        # Kích hoạt vẽ lại nếu sửa phương trình Math
-        if key == "math_data.function":
-            self.math_function = value # Đồng bộ với biến toàn cục cũ (nếu có dùng)
-            self.load_active_drawable()
+        if object_idx != -1:
+            target_obj = self.scene.objects[object_idx]
+            self._set_nested_attribute(target_obj, key_path, value)
+
+            if key_path == "mesh_renderer.texture_filename" and value == "":
+                self.remove_texture_objects(obj_id)
+
+            # --- THÊM ĐOẠN NÀY ĐỂ XỬ LÝ LỆNH BẤT/TẮT CÁC CHẾ ĐỘ ---
+            # Xử lý các lệnh bật/tắt state đặc biệt (bool, enum)
+            if hasattr(target_obj, 'drawable') and target_obj.drawable:
+                
+                # Nút "Flat Color" (A)
+                if key_path == "u_use_flat_color":
+                    target_obj.drawable.use_flat_color = value
+                    print(f"[{target_obj.name}] Flat Color: {value}")
+                
+                # Nút "Gouraud/Phong" (C)
+                elif key_path == "u_enable_lighting":
+                    target_obj.drawable.render_mode = 2 if value else 0
+                    print(f"[{target_obj.name}] Lighting Enabled: {value}")
+            # --------------------------------------------------------
+
+
+                elif key_path == "shader":
+                    if hasattr(target_obj, 'drawable') and target_obj.drawable:
+                        target_obj.drawable.render_mode = value
+                        print(f"[{target_obj.name}] Render Mode changed to: {value}")
+
+            self.update_hierarchy_state(object_idx, target_obj)
     
     def get_selected_object_components(self):
         """Get components for currently selected object"""
@@ -463,6 +481,7 @@ class AppModel:
                 comp[keys[-1]] = value
             else:
                 self.mesh_components[key] = value
+
 
     def set_color(self, color: Tuple[float, float, float]) -> None:
         """Set object color from RGB tuple"""

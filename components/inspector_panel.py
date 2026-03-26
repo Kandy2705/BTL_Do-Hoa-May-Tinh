@@ -71,15 +71,28 @@ class InspectorPanel:
                     imgui.text("Shader"); imgui.next_column()
                     imgui.push_item_width(-1)
                     changed_shader, new_shader = imgui.combo(f"##shader_{target.id}", target.shader, model.shader_names)
-                    if changed_shader: actions['update_attr'] = {"obj": target, "attr": "shader", "val": new_shader}
+                    if changed_shader: 
+                        actions['update_attr'] = {"obj": target, "attr": "shader", "val": new_shader}
+                        
+                        # --- THÊM 2 DÒNG NÀY ĐỂ BÁO CHO SHADER ĐỔI CHẾ ĐỘ ---
+                        if hasattr(target, 'drawable') and target.drawable:
+                            target.drawable.render_mode = new_shader
+                            
                     imgui.pop_item_width(); imgui.next_column()
                     
+                    # 1. CHỌN MÀU CƠ BẢN (Yêu cầu B)
                     imgui.text("Color"); imgui.next_column()
                     imgui.push_item_width(-1)
                     changed_color, new_color = imgui.color_edit3(f"##color_{target.id}", target.color[0], target.color[1], target.color[2])
                     if changed_color: 
-                        updated_color = list(new_color) + [target.color[3]] # Giữ nguyên Alpha
+                        # Cập nhật mảng an toàn không bị lỗi Index
+                        updated_color = list(new_color)
+                        if len(target.color) > 3: updated_color.append(target.color[3]) 
+                        
                         actions['update_attr'] = {"obj": target, "attr": "color", "val": updated_color}
+                        # Update luôn xuống drawable nếu có
+                        if hasattr(target, 'drawable') and target.drawable:
+                            target.drawable.set_color(new_color) 
                     imgui.pop_item_width(); imgui.next_column()
                     
                     imgui.text("Texture"); imgui.next_column()
@@ -94,6 +107,38 @@ class InspectorPanel:
                         imgui.same_line()
                         imgui.text(target.texture_filename)
                     imgui.next_column()
+
+                    imgui.columns(1) 
+                    
+                    imgui.spacing()
+                    imgui.spacing()
+                    
+                    imgui.columns(2, "lighting_cols", False)  # Start new columns
+                    imgui.set_column_width(0, 80)
+
+                    if hasattr(target, 'drawable') and target.drawable:
+                        
+                        # # 3. CÔNG TẮC ÁNH SÁNG (Yêu cầu C)
+                        # imgui.text("Lighting"); imgui.next_column()
+                        # current_light = getattr(target.drawable, 'lighting_enabled', True)
+                        # changed_light, new_light = imgui.checkbox(f"Enable Phong Shading##light_{target.id}", current_light)
+                        # if changed_light:
+                        #     actions['update_attr'] = {"obj": target.drawable, "attr": "lighting_enabled", "val": new_light}
+                        # imgui.next_column()
+                        
+                        # Padding giữa các sections
+                        imgui.spacing()
+
+                        # 4. CÔNG TẮC MÀU PHẲNG (Yêu cầu A)
+                        imgui.text("Flat Color"); imgui.next_column()
+                        current_flat = getattr(target.drawable, 'use_flat_color', False)
+                        changed_flat, new_flat = imgui.checkbox(f"Override with Flat Color##flat_{target.id}", current_flat)
+                        if changed_flat:
+                            actions['update_attr'] = {"obj": target.drawable, "attr": "use_flat_color", "val": new_flat}
+                            if new_flat:
+                                # Nếu bật màu phẳng, lấy màu hiện tại làm màu phẳng luôn
+                                target.drawable.set_solid_color(target.color[:3])
+                        imgui.next_column()
                     
                     imgui.columns(1)
                     
