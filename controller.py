@@ -14,11 +14,15 @@ class AppController:
         self.view = view or Viewer()
         self.model = model or AppModel()
         
+        # Set model reference in viewer for gizmo interaction
+        self.view.set_model_reference(self.model)
+        
         self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
         self._setup_coordinate_system()
 
         self.view.scroll_callback = self.on_scroll
         self.view.mouse_move_callback = self.on_mouse_move
+        self.view.mouse_button_callback = self.on_mouse_button
         self.view.key_callback = self.on_key
 
     def on_scroll(self, window, xoffset, yoffset):
@@ -28,7 +32,12 @@ class AppController:
     def on_mouse_move(self, window, xpos, ypos):
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
             self.view.trackball.drag(self.view.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
-
+    
+    def on_mouse_button(self, window, button, action, mods):
+        """Handle mouse button events for gizmo interaction"""
+        # This will be handled by viewer's gizmo system
+        pass
+    
     def on_key(self, window, key, scancode, action, mods):
         if action == glfw.PRESS:
             if key == glfw.KEY_W:
@@ -223,6 +232,10 @@ class AppController:
             data = actions['update_obj']
             self.model.update_object_data(data['id'], data['key'], data['val'])
 
+        if 'set_tool' in actions:
+            self.model.active_tool = actions['set_tool']
+            print(f"Đã chuyển sang công cụ: {self.model.active_tool}")
+
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
         import platform
@@ -399,6 +412,10 @@ class AppController:
             GL.glUseProgram(self.coord_shader.render_idx)
             self.view.draw_coordinate_system(self.coord_system, projection, view)
             
-            self.view.draw_drawables(self.model.drawables, self.model.scene.objects)
+            self.view.draw_drawables(self.model.drawables, 
+                self.model.scene.objects,
+                active_tool=self.model.active_tool,
+                selected_objects=self.model.scene.selected_objects
+            )
 
             self.view.end_frame()

@@ -34,6 +34,8 @@ class AppModel:
         # Object type for conditional components
         self.object_type: str = "mesh"  # "mesh", "light", "camera"
         self.selected_hierarchy_idx = -1  # -1 means no hierarchy object selected
+
+        self.active_tool = 'select'
         
         # Initialize Scene
         self.scene = Scene()
