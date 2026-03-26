@@ -30,6 +30,7 @@ class SphereGrid(BaseShape):
         """
         Cách 2: Tạo 6 lưới hình vuông (6 mặt của cube) 
         rồi chuẩn hóa (normalize) từng đỉnh để chiếu lên mặt cầu.
+        Vẽ dạng triangles đặc thay vì wireframe.
         """
         all_vertices = []
         all_colors = []
@@ -44,20 +45,40 @@ class SphereGrid(BaseShape):
             local_x = np.array([local_z[1], local_z[2], local_z[0]])
             local_y = np.cross(local_z, local_x)
 
+            # Tạo lưới vertices cho mỗi mặt
+            face_vertices = []
+            face_colors = []
+            
             for j in range(self.grid_size):
                 for i in range(self.grid_size):
-                    for dx, dy in [(0,0), (1,0), (0,1), (0,1), (1,0), (1,1)]:
-                        percent_x = (i + dx) / self.grid_size
-                        percent_y = (j + dy) / self.grid_size
-                        
-                        point_on_cube = local_z + (percent_x * 2 - 1) * local_x + (percent_y * 2 - 1) * local_y
-                        
-                        point_on_sphere = point_on_cube / np.linalg.norm(point_on_cube)
-                        
-                        all_vertices.append(point_on_sphere * self.radius)
-                        
-                        color = (point_on_sphere + 1.0) * 0.5 
-                        all_colors.append(color)
+                    percent_x = i / (self.grid_size - 1)
+                    percent_y = j / (self.grid_size - 1)
+                    
+                    point_on_cube = local_z + (percent_x * 2 - 1) * local_x + (percent_y * 2 - 1) * local_y
+                    point_on_sphere = point_on_cube / np.linalg.norm(point_on_cube)
+                    
+                    face_vertices.append(point_on_sphere * self.radius)
+                    color = (point_on_sphere + 1.0) * 0.5 
+                    face_colors.append(color)
+            
+            # Tạo triangles từ lưới vertices
+            for j in range(self.grid_size - 1):
+                for i in range(self.grid_size - 1):
+                    # 4 vertices của mỗi square trong lưới
+                    idx = j * self.grid_size + i
+                    v0 = face_vertices[idx]
+                    v1 = face_vertices[idx + 1]
+                    v2 = face_vertices[idx + self.grid_size]
+                    v3 = face_vertices[idx + self.grid_size + 1]
+                    
+                    c0 = face_colors[idx]
+                    c1 = face_colors[idx + 1]
+                    c2 = face_colors[idx + self.grid_size]
+                    c3 = face_colors[idx + self.grid_size + 1]
+                    
+                    # 2 triangles cho mỗi square
+                    all_vertices.extend([v0, v1, v2, v2, v1, v3])
+                    all_colors.extend([c0, c1, c2, c2, c1, c3])
 
         return np.array(all_vertices, dtype=np.float32), np.array(all_colors, dtype=np.float32)
 
@@ -78,7 +99,7 @@ class SphereGrid(BaseShape):
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_LINES, 0, self.vertices.shape[0])
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
         self.vao.deactivate()
     
     def set_color(self, color):

@@ -49,6 +49,23 @@ class TransformGizmo(BaseShape):
             0.0, 0.0, 1.0, 1.0,   0.0, 0.0, 1.0, 1.0  # Blue
         ], dtype=np.float32)
 
+        # --- THAY ĐỔI 3: THÊM CUBE CHO SCALE TOOL ---
+        # Tạo vertices cho 3 cube nhỏ ở cuối mỗi trục (dùng cho scale tool)
+        cube_size = 0.15
+        cube_offset = 2.0  # Vị trí cube ở cuối trục
+        
+        # Cube cho trục X (đỏ)
+        self.cube_x_vertices = self._create_cube_vertices([cube_offset, 0, 0], cube_size)
+        self.cube_x_colors = np.array([[1.0, 0.0, 0.0]] * 36, dtype=np.float32)  # 36 vertices per cube
+        
+        # Cube cho trục Y (xanh lá)  
+        self.cube_y_vertices = self._create_cube_vertices([0, cube_offset, 0], cube_size)
+        self.cube_y_colors = np.array([[0.0, 1.0, 0.0]] * 36, dtype=np.float32)
+        
+        # Cube cho trục Z (xanh dương)
+        self.cube_z_vertices = self._create_cube_vertices([0, 0, cube_offset], cube_size)
+        self.cube_z_colors = np.array([[0.0, 0.0, 1.0]] * 36, dtype=np.float32)
+
         self.vao_lines = VAO()
         # VAO 0: Vertices
         self.vao_lines.add_vbo(0, self.vertices_lines, ncomponents=3, stride=0, offset=None)
@@ -59,10 +76,60 @@ class TransformGizmo(BaseShape):
         self.shader = Shader(vert_shader_basic, frag_shader_basic)
         self.uma = UManager(self.shader)
 
+        # --- THAY ĐỔI 4: TẠO VAO CHO CUBE SCALE ---
+        self.vao_cubes = VAO()
+        # Gộp tất cả vertices và colors của 3 cube
+        all_cube_vertices = np.vstack([self.cube_x_vertices, self.cube_y_vertices, self.cube_z_vertices])
+        all_cube_colors = np.vstack([self.cube_x_colors, self.cube_y_colors, self.cube_z_colors])
+        
+        self.vao_cubes.add_vbo(0, all_cube_vertices, ncomponents=3, stride=0, offset=None)
+        self.vao_cubes.add_vbo(1, all_cube_colors, ncomponents=3, stride=0, offset=None)
+
         # Interaction state
         self.selected_axis = None  # 'x', 'y', 'z', None
         self.drag_start_pos = None
         self.drag_start_value = None
+
+    def _create_cube_vertices(self, center, size):
+        """Tạo vertices cho một cube ở vị trí center với kích thước size"""
+        x, y, z = center
+        s = size / 2
+        
+        # 8 góc của cube
+        vertices = np.array([
+            # Front face
+            [x-s, y-s, z+s], [x+s, y-s, z+s], [x+s, y+s, z+s], [x-s, y+s, z+s],
+            # Back face  
+            [x-s, y-s, z-s], [x-s, y+s, z-s], [x+s, y+s, z-s], [x+s, y-s, z-s],
+            # Top face
+            [x-s, y+s, z-s], [x-s, y+s, z+s], [x+s, y+s, z+s], [x+s, y+s, z-s],
+            # Bottom face
+            [x-s, y-s, z-s], [x+s, y-s, z-s], [x+s, y-s, z+s], [x-s, y-s, z+s],
+            # Right face
+            [x+s, y-s, z-s], [x+s, y+s, z-s], [x+s, y+s, z+s], [x+s, y-s, z+s],
+            # Left face
+            [x-s, y-s, z-s], [x-s, y-s, z+s], [x-s, y+s, z+s], [x-s, y+s, z-s]
+        ], dtype=np.float32)
+        
+        # Indices để vẽ triangles (2 triangles per face * 6 faces = 12 triangles = 36 vertices)
+        indices = np.array([
+            # Front
+            0, 1, 2, 0, 2, 3,
+            # Back
+            4, 5, 6, 4, 6, 7,
+            # Top
+            8, 9, 10, 8, 10, 11,
+            # Bottom
+            12, 13, 14, 12, 14, 15,
+            # Right
+            16, 17, 18, 16, 18, 19,
+            # Left
+            20, 21, 22, 20, 22, 23
+        ], dtype=np.uint32)
+        
+        # Tạo vertices từ indices
+        triangle_vertices = vertices[indices]
+        return triangle_vertices
 
     def project_to_screen(self, point_3d, view_matrix, proj_matrix, win_size):
         """Hàm chiếu 1 điểm từ thế giới 3D lên tọa độ Pixel 2D trên màn hình"""
@@ -119,13 +186,13 @@ class TransformGizmo(BaseShape):
                     self.drag_start_value = {'x': target_pos[0], 'y': target_pos[1], 'z': target_pos[2]}
                 print(f"[GIZMO] Selected axis: {self.selected_axis}")
 
-    def handle_mouse_drag(self, mouse_pos, target_pos, current_tool, view, proj, win_size):
+    def handle_mouse_drag(self, mouse_pos, target_obj, current_tool, view, proj, win_size):
         if self.selected_axis and self.drag_start_pos:
             # 1. Chiếu trục đang chọn lên màn hình 2D
-            origin_2d = self.project_to_screen(target_pos, view, proj, win_size)
-            if self.selected_axis == 'x': tip_3d = [target_pos[0] + 1.0, target_pos[1], target_pos[2]]
-            elif self.selected_axis == 'y': tip_3d = [target_pos[0], target_pos[1] + 1.0, target_pos[2]]
-            else: tip_3d = [target_pos[0], target_pos[1], target_pos[2] + 1.0]
+            origin_2d = self.project_to_screen(target_obj.position, view, proj, win_size)
+            if self.selected_axis == 'x': tip_3d = [target_obj.position[0] + 1.0, target_obj.position[1], target_obj.position[2]]
+            elif self.selected_axis == 'y': tip_3d = [target_obj.position[0], target_obj.position[1] + 1.0, target_obj.position[2]]
+            else: tip_3d = [target_obj.position[0], target_obj.position[1], target_obj.position[2] + 1.0]
                 
             tip_2d = self.project_to_screen(tip_3d, view, proj, win_size)
             
@@ -142,9 +209,18 @@ class TransformGizmo(BaseShape):
             speed = 0.02 # Độ nhạy
             
             if current_tool == 'move':
-                if self.selected_axis == 'x': target_pos[0] += move_amount * speed
-                elif self.selected_axis == 'y': target_pos[1] += move_amount * speed
-                elif self.selected_axis == 'z': target_pos[2] += move_amount * speed
+                if self.selected_axis == 'x': target_obj.position[0] += move_amount * speed
+                elif self.selected_axis == 'y': target_obj.position[1] += move_amount * speed
+                elif self.selected_axis == 'z': target_obj.position[2] += move_amount * speed
+            elif current_tool == 'scale':
+                # Scale tool: thay đổi scale của object
+                scale_factor = 1.0 + move_amount * speed * 0.1
+                if self.selected_axis == 'x': 
+                    target_obj.scale[0] *= scale_factor
+                elif self.selected_axis == 'y':
+                    target_obj.scale[1] *= scale_factor
+                elif self.selected_axis == 'z':
+                    target_obj.scale[2] *= scale_factor
             
             # Cập nhật vị trí bắt đầu để kéo mượt
             self.drag_start_pos = mouse_pos
@@ -155,7 +231,7 @@ class TransformGizmo(BaseShape):
         self.drag_start_pos = None
         self.drag_start_value = None
 
-    def draw(self, projection, view, position):
+    def draw(self, projection, view, position, current_tool="move"):
         GL.glUseProgram(self.shader.render_idx)
         
         # --- BƯỚC 1: VẼ 3 ĐƯỜNG THẲNG XYZ (LINE 1.0) ---
@@ -178,42 +254,49 @@ class TransformGizmo(BaseShape):
         self.vao_lines.activate()
         GL.glDrawArrays(GL.GL_LINES, 0, 6) # Vẽ 3 đường thẳng
 
-        # --- BƯỚC 2: TÁI SỬ DỤNG HÀM DRAW CỦA CÁC KHỐI NÓN CỦA BẠN ---
-        # Cần tính toán Ma trận Model cho từng khối nón để nó gắn vào cuối đường kẻ
+        # --- BƯỚC 2: VẼ CUBE SCALE NẾU LÀ SCALE TOOL ---
+        if current_tool == 'scale':
+            self.vao_cubes.activate()
+            # Vẽ 3 cube (36 vertices mỗi cube = 108 vertices tổng cộng)
+            GL.glDrawArrays(GL.GL_TRIANGLES, 0, 108)
+        else:
+            # --- BƯỚC 3: TÁI SỬ DỤNG HÀM DRAW CỦA CÁC KHỐI NÓN CỦA BẠN ---
+            # Chỉ vẽ nón khi không phải scale tool
+            # Cần tính toán Ma trận Model cho từng khối nón để nó gắn vào cuối đường kẻ
 
-        # 1. Mũi tên xanh lá (Y) - Gắn vào cuối đường kẻ Y (độ dài 2.0)
-        # Hướng Y chuẩn, không cần xoay
-        T_y = np.identity(4, dtype=np.float32)
-        T_y[0,3], T_y[1,3], T_y[2,3] = 0.0, 2.0, 0.0 # Tọa độ tương đối so với tâm Gizmo
-        # Kết hợp model matrix
-        final_cone_y_model = gizmo_transform @ T_base @ T_y
-        self.cone_y.draw(projection, view, final_cone_y_model)
+            # 1. Mũi tên xanh lá (Y) - Gắn vào cuối đường kẻ Y (độ dài 2.0)
+            # Hướng Y chuẩn, không cần xoay
+            T_y = np.identity(4, dtype=np.float32)
+            T_y[0,3], T_y[1,3], T_y[2,3] = 0.0, 2.0, 0.0 # Tọa độ tương đối so với tâm Gizmo
+            # Kết hợp model matrix
+            final_cone_y_model = gizmo_transform @ T_base @ T_y
+            self.cone_y.draw(projection, view, final_cone_y_model)
 
-        # 2. Mũi tên đỏ (X) - Gắn vào cuối đường kẻ X (độ dài 2.0)
-        # Cần xoay sang phải (-90 độ quanh trục Z)
-        T_x = np.identity(4, dtype=np.float32)
-        T_x[0,3], T_x[1,3], T_x[2,3] = 2.0, 0.0, 0.0 # Tọa độ tương đối
-        R_x = np.array([
-            [ 0.0, 1.0, 0.0, 0.0],
-            [-1.0, 0.0, 0.0, 0.0],
-            [ 0.0, 0.0, 1.0, 0.0],
-            [ 0.0, 0.0, 0.0, 1.0]
-        ], dtype=np.float32)
-        final_cone_x_model = gizmo_transform @ T_base @ T_x @ R_x
-        self.cone_x.draw(projection, view, final_cone_x_model)
+            # 2. Mũi tên đỏ (X) - Gắn vào cuối đường kẻ X (độ dài 2.0)
+            # Cần xoay sang phải (-90 độ quanh trục Z)
+            T_x = np.identity(4, dtype=np.float32)
+            T_x[0,3], T_x[1,3], T_x[2,3] = 2.0, 0.0, 0.0 # Tọa độ tương đối
+            R_x = np.array([
+                [ 0.0, 1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0, 0.0],
+                [ 0.0, 0.0, 1.0, 0.0],
+                [ 0.0, 0.0, 0.0, 1.0]
+            ], dtype=np.float32)
+            final_cone_x_model = gizmo_transform @ T_base @ T_x @ R_x
+            self.cone_x.draw(projection, view, final_cone_x_model)
 
-        # 3. Mũi tên xanh dương (Z) - Gắn vào cuối đường kẻ Z (độ dài 2.0)
-        # Cần xoay ra trước (+90 độ quanh trục X) và xoay 180 độ để đúng chiều
-        T_z = np.identity(4, dtype=np.float32)
-        T_z[0,3], T_z[1,3], T_z[2,3] = 0.0, 0.0, 2.0 # Tọa độ tương đối
-        R_z = np.array([
-            [ 1.0,  0.0,  0.0, 0.0],
-            [ 0.0,  0.0, -1.0, 0.0], # cos(-90)=0, -sin(-90)=1 (Sửa dấu ở đây)
-            [ 0.0,  1.0,  0.0, 0.0], # sin(-90)=-1, cos(-90)=0 (Sửa dấu ở đây)
-            [ 0.0,  0.0,  0.0, 1.0]
-        ], dtype=np.float32)
-        final_cone_z_model = gizmo_transform @ T_base @ T_z @ R_z
-        self.cone_z.draw(projection, view, final_cone_z_model)
+            # 3. Mũi tên xanh dương (Z) - Gắn vào cuối đường kẻ Z (độ dài 2.0)
+            # Cần xoay ra trước (+90 độ quanh trục X)
+            T_z = np.identity(4, dtype=np.float32)
+            T_z[0,3], T_z[1,3], T_z[2,3] = 0.0, 0.0, 2.0 # Tọa độ tương đối
+            R_z = np.array([
+                [ 1.0,  0.0,  0.0, 0.0],
+                [ 0.0,  0.0, -1.0, 0.0], # cos(-90)=0, -sin(-90)=1 (Sửa dấu ở đây)
+                [ 0.0,  1.0,  0.0, 0.0], # sin(-90)=-1, cos(-90)=0 (Sửa dấu ở đây)
+                [ 0.0,  0.0,  0.0, 1.0]
+            ], dtype=np.float32)
+            final_cone_z_model = gizmo_transform @ T_base @ T_z @ R_z
+            self.cone_z.draw(projection, view, final_cone_z_model)
 
         # Trả lại trạng thái depth cũ
         GL.glEnable(GL.GL_DEPTH_TEST)
@@ -222,6 +305,8 @@ class TransformGizmo(BaseShape):
         """Clean up resources"""
         if hasattr(self, 'vao_lines'):
             self.vao_lines.delete()
+        if hasattr(self, 'vao_cubes'):
+            self.vao_cubes.delete()
         if hasattr(self, 'shader'):
             self.shader.delete()
         
