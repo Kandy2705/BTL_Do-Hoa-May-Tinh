@@ -11,6 +11,8 @@ from components.main_menu import MainMenu
 from components.hierarchy_panel import HierarchyPanel
 from components.inspector_panel import InspectorPanel
 
+from libs.gizmo import TransformGizmo
+
 class Viewer:
     def __init__(self, width=1280, height=720):
         glfw.init()
@@ -27,14 +29,20 @@ class Viewer:
         self.imgui_impl = GlfwRenderer(self.win)
         self.trackball = Trackball()
         
+        # Store model reference for gizmo interaction
+        self.model = None
+        
         # Call Unity Style Setup
         self._apply_unity_style()
 
         self.scroll_callback = None
         self.mouse_move_callback = None
+        self.mouse_button_callback = None
         self.key_callback = None
         self.last_mouse_pos = (0.0, 0.0)
         self.fill_modes = itertools.cycle([gl.GL_FILL, gl.GL_LINE, gl.GL_POINT])
+
+        self.gizmo = TransformGizmo()
 
         self.cube_texture_id, _, _ = self.load_texture("assets/textures/cube-solid.png")
         self.hand_texture_id, _, _ = self.load_texture("assets/textures/hand-solid.png")
@@ -43,8 +51,13 @@ class Viewer:
         self.scale_texture_id, _, _ = self.load_texture("assets/textures/up-right-from-square-solid.png")
 
         glfw.set_scroll_callback(self.win, self._on_scroll)
-        glfw.set_cursor_pos_callback(self.win, self._on_mouse_move)
+        glfw.set_cursor_pos_callback(self.win, self.on_mouse_move)
+        glfw.set_mouse_button_callback(self.win, self.on_mouse_button)
         glfw.set_key_callback(self.win, self._on_key)
+
+    def set_model_reference(self, model):
+        """Set reference to AppModel for gizmo interaction"""
+        self.model = model
 
     def _apply_unity_style(self):
         style = imgui.get_style()
@@ -71,9 +84,50 @@ class Viewer:
     # Các hàm callback giữ nguyên như code cũ của bạn...
     def _on_scroll(self, window, xoffset, yoffset):
         if self.scroll_callback: self.scroll_callback(window, xoffset, yoffset)
-    def _on_mouse_move(self, window, xpos, ypos):
-        if self.mouse_move_callback: self.mouse_move_callback(window, xpos, ypos)
+    def on_mouse_move(self, window, xpos, ypos):
+        if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
+            current_tool = getattr(self.model, 'active_tool', 'select')
+            selected_objects = getattr(self.model.scene, 'selected_objects', [])
+            
+            if (selected_objects and len(selected_objects) == 1 and 
+                current_tool in ['move', 'rotate', 'scale']):
+                target = selected_objects[0]
+                mouse_pos = (xpos, ypos)
+                
+                # --- LẤY MA TRẬN CAMERA & MÀN HÌNH ---
+                view = self.trackball.view_matrix()
+                proj = self.trackball.projection_matrix(glfw.get_window_size(window))
+                win_size = glfw.get_window_size(window)
+                
+                # Kéo Gizmo
+                self.gizmo.handle_mouse_drag(mouse_pos, target.position, current_tool, view, proj, win_size)
+            else:
+                # Nếu không nắm Gizmo thì mới cho phép xoay Camera
+                self.trackball.drag(self.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
+        
         self.last_mouse_pos = (xpos, ypos)
+    
+    def on_mouse_button(self, window, button, action, mods):
+        if button == glfw.MOUSE_BUTTON_LEFT:
+            if action == glfw.PRESS:
+                current_tool = getattr(self.model, 'active_tool', 'select')
+                selected_objects = getattr(self.model.scene, 'selected_objects', [])
+                
+                if (selected_objects and len(selected_objects) == 1 and 
+                    current_tool in ['move', 'rotate', 'scale']):
+                    target = selected_objects[0]
+                    mouse_pos = glfw.get_cursor_pos(window)
+                    
+                    # --- LẤY MA TRẬN CAMERA & MÀN HÌNH ---
+                    view = self.trackball.view_matrix()
+                    proj = self.trackball.projection_matrix(glfw.get_window_size(window))
+                    win_size = glfw.get_window_size(window)
+                    
+                    # Bắt đầu bấm trúng Gizmo
+                    self.gizmo.handle_mouse_press(mouse_pos, target.position, current_tool, view, proj, win_size)
+                    
+            elif action == glfw.RELEASE:
+                self.gizmo.handle_mouse_release()
     def _on_key(self, window, key, scancode, action, mods):
         self.imgui_impl.keyboard_callback(window, key, scancode, action, mods)
         if not imgui.get_io().want_capture_keyboard and self.key_callback:
@@ -111,7 +165,7 @@ class Viewer:
         self.imgui_impl.render(imgui.get_draw_data())
         glfw.swap_buffers(self.win)
 
-    def draw_drawables(self, drawables, scene_objects):
+    def draw_drawables(self, drawables, scene_objects, active_tool="select", selected_objects=None):
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
         
@@ -124,14 +178,18 @@ class Viewer:
                 continue 
 
             if hasattr(obj, 'drawable') and obj.drawable is not None:
-                
                 if hasattr(obj.drawable, 'set_transform'):
                     obj.drawable.set_transform(obj.position, obj.rotation, obj.scale)
-                
                 if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
                     obj.drawable.set_color(obj.color[:3])
-                
                 obj.drawable.draw(projection, view, None)
+
+        if selected_objects and len(selected_objects) == 1:
+            target = selected_objects[0]
+            # Nếu đang chọn tool Move, Rotate hoặc Scale thì hiện Gizmo lên
+            if active_tool in ['move', 'rotate', 'scale']:
+                # Truyền vị trí của target vào để nó vẽ trục XYZ ra
+                self.gizmo.draw(projection, view, target.position)
                 
                 
 
@@ -182,18 +240,24 @@ class Viewer:
 
         if imgui.image(self.cube_texture_id, 24, 24):
             print("Đã chọn Object Tool")
-        
-        if imgui.image_button(self.hand_texture_id, 16, 16):
-            print("Đã chọn Hand Tool")
             
-        if imgui.image_button(self.move_texture_id, 16, 16):
-            print("Đã chọn Move Tool")
-            
-        if imgui.image_button(self.rotate_texture_id, 16, 16):
-            print("Đã chọn Rotate Tool")
-            
-        if imgui.image_button(self.scale_texture_id, 16, 16):
-            print("Đã chọn Scale Tool")
+        def draw_tool_btn(tex_id, tool_name):
+            is_active = model.active_tool == tool_name
+            if is_active:
+                imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 1.0, 1.0) # Màu xanh Unity
+                
+            if imgui.image_button(tex_id, 16, 16):
+                actions['set_tool'] = tool_name
+                
+            if is_active:
+                imgui.pop_style_color(1)
+
+        draw_tool_btn(self.hand_texture_id, 'hand')
+        draw_tool_btn(self.move_texture_id, 'move')
+        draw_tool_btn(self.rotate_texture_id, 'rotate')
+        draw_tool_btn(self.scale_texture_id, 'scale')
+
+
 
         imgui.end()
         imgui.pop_style_color()
