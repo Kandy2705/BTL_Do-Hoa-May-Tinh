@@ -1,6 +1,7 @@
 import numpy as np
 import OpenGL.GL as GL
 import importlib
+import math
 from libs.buffer import VAO, UManager
 from libs.shader import Shader
 from geometry.base_shape import BaseShape
@@ -9,153 +10,140 @@ class TransformGizmo(BaseShape):
     def __init__(self):
         super().__init__() # Initialize transform from BaseShape
         
-        # Đường dẫn shader cơ bản để vẽ màu đơn sắc
         vert_shader_basic = "./shaders/color_interp.vert"
         frag_shader_basic = "./shaders/color_interp.frag"
         
-        # --- THAY ĐỔI 1: TÁI SỬ DỤNG LẠI CLASS CONE3D CỦA BẠN ---
-        # Dùng importlib để lách luật thư mục tên '3d' bắt đầu bằng số
+        # --- IMPORT CONE (Cho Move Tool) ---
         cone_module = importlib.import_module("geometry.3d.cone3d")
         Cone = cone_module.Cone
-        
-        # Khởi tạo 3 khối Cone riêng biệt (vô hiệu hóa ánh sáng 'lighting_enabled=False')
-        # để nó vẽ ra màu đơn sắc sáng rõ
         self.cone_x = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
         self.cone_y = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
         self.cone_z = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
         
-        # Gán Setup cho 3 khối nón
-        self.cone_x.setup()
-        self.cone_y.setup()
-        self.cone_z.setup()
-        
-        # Gán MÀU ĐƠN SẮC RGB cho 3 khối nón (Dùng hàm set_solid_color vừa thêm)
-        self.cone_x.set_solid_color([1.0, 0.0, 0.0]) # Red
-        self.cone_y.set_solid_color([0.0, 1.0, 0.0]) # Green
-        self.cone_z.set_solid_color([0.0, 0.0, 1.0]) # Blue
+        self.cone_x.setup(); self.cone_x.set_solid_color([1.0, 0.0, 0.0]) # Red
+        self.cone_y.setup(); self.cone_y.set_solid_color([0.0, 1.0, 0.0]) # Green
+        self.cone_z.setup(); self.cone_z.set_solid_color([0.0, 0.0, 1.0]) # Blue
 
-        # --- THAY ĐỔI 2: CHỈ CÒN TẠO HÌNH HỌC CHO 3 ĐƯỜNG KẺ (SHAFTS) ---
-        # Dữ liệu 3 đường thẳng
+        # --- TẠO ĐƯỜNG KẺ ---
         self.vertices_lines = np.array([
-            0.0, 0.0, 0.0,   2.0, 0.0, 0.0,  # X axis
-            0.0, 0.0, 0.0,   0.0, 2.0, 0.0,  # Y axis
-            0.0, 0.0, 0.0,   0.0, 0.0, 2.0   # Z axis
+            0.0, 0.0, 0.0,   2.0, 0.0, 0.0,
+            0.0, 0.0, 0.0,   0.0, 2.0, 0.0,
+            0.0, 0.0, 0.0,   0.0, 0.0, 2.0
         ], dtype=np.float32)
 
-        # Dữ liệu màu sắc cho 3 đường thẳng (dạng RGBA)
         self.colors_lines = np.array([
-            1.0, 0.0, 0.0, 1.0,   1.0, 0.0, 0.0, 1.0, # Red
-            0.0, 1.0, 0.0, 1.0,   0.0, 1.0, 0.0, 1.0, # Green
-            0.0, 0.0, 1.0, 1.0,   0.0, 0.0, 1.0, 1.0  # Blue
+            1.0, 0.0, 0.0, 1.0,   1.0, 0.0, 0.0, 1.0,
+            0.0, 1.0, 0.0, 1.0,   0.0, 1.0, 0.0, 1.0,
+            0.0, 0.0, 1.0, 1.0,   0.0, 0.0, 1.0, 1.0
         ], dtype=np.float32)
 
-        # --- THAY ĐỔI 3: THÊM CUBE CHO SCALE TOOL ---
-        # Tạo vertices cho 3 cube nhỏ ở cuối mỗi trục (dùng cho scale tool)
+        # --- IMPORT CUBE CHO SCALE TOOL ---
+        cube_module = importlib.import_module("geometry.3d.cube3d")
+        Cube = cube_module.Cube
+        
         cube_size = 0.15
-        cube_offset = 2.0  # Vị trí cube ở cuối trục
-        
-        # Cube cho trục X (đỏ)
+        cube_offset = 2.0
         self.cube_x_vertices = self._create_cube_vertices([cube_offset, 0, 0], cube_size)
-        self.cube_x_colors = np.array([[1.0, 0.0, 0.0]] * 36, dtype=np.float32)  # 36 vertices per cube
-        
-        # Cube cho trục Y (xanh lá)  
+        self.cube_x_colors = np.array([[1.0, 0.0, 0.0]] * 36, dtype=np.float32)  
         self.cube_y_vertices = self._create_cube_vertices([0, cube_offset, 0], cube_size)
         self.cube_y_colors = np.array([[0.0, 1.0, 0.0]] * 36, dtype=np.float32)
-        
-        # Cube cho trục Z (xanh dương)
         self.cube_z_vertices = self._create_cube_vertices([0, 0, cube_offset], cube_size)
         self.cube_z_colors = np.array([[0.0, 0.0, 1.0]] * 36, dtype=np.float32)
+        
+        # Khởi tạo 3 cube objects
+        self.cube_x = Cube(vert_shader_basic, frag_shader_basic)
+        self.cube_y = Cube(vert_shader_basic, frag_shader_basic)
+        self.cube_z = Cube(vert_shader_basic, frag_shader_basic)
+        
+        self.cube_x.setup(); self.cube_x.set_color([1.0, 0.0, 0.0]) # Red
+        self.cube_y.setup(); self.cube_y.set_color([0.0, 1.0, 0.0]) # Green
+        self.cube_z.setup(); self.cube_z.set_color([0.0, 0.0, 1.0]) # Blue
 
+        # --- TẠO VÒNG XOAY CHO ROTATE TOOL ---
+        self.rotation_circles = self._create_rotation_circles(radius=2.0)
+
+        # KHỞI TẠO VAOs
         self.vao_lines = VAO()
-        # VAO 0: Vertices
         self.vao_lines.add_vbo(0, self.vertices_lines, ncomponents=3, stride=0, offset=None)
-        # VAO 1: Colors (4 thành phần RGBA)
         self.vao_lines.add_vbo(1, self.colors_lines, ncomponents=4, stride=0, offset=None)
         
-        # Dùng lại shader cơ bản của bạn
         self.shader = Shader(vert_shader_basic, frag_shader_basic)
         self.uma = UManager(self.shader)
 
-        # --- THAY ĐỔI 4: TẠO VAO CHO CUBE SCALE ---
-        self.vao_cubes = VAO()
-        # Gộp tất cả vertices và colors của 3 cube
-        all_cube_vertices = np.vstack([self.cube_x_vertices, self.cube_y_vertices, self.cube_z_vertices])
-        all_cube_colors = np.vstack([self.cube_x_colors, self.cube_y_colors, self.cube_z_colors])
-        
-        self.vao_cubes.add_vbo(0, all_cube_vertices, ncomponents=3, stride=0, offset=None)
-        self.vao_cubes.add_vbo(1, all_cube_colors, ncomponents=3, stride=0, offset=None)
+        self.vao_rotation = VAO()
+        all_circle_vertices = np.vstack([self.rotation_circles['x_vertices'], 
+                                        self.rotation_circles['y_vertices'], 
+                                        self.rotation_circles['z_vertices']])
+        all_circle_colors = np.vstack([self.rotation_circles['x_colors'], 
+                                       self.rotation_circles['y_colors'], 
+                                       self.rotation_circles['z_colors']])
+        self.vao_rotation.add_vbo(0, all_circle_vertices, ncomponents=3, stride=0, offset=None)
+        self.vao_rotation.add_vbo(1, all_circle_colors, ncomponents=4, stride=0, offset=None)
 
-        # Interaction state
-        self.selected_axis = None  # 'x', 'y', 'z', None
+        # Interaction states
+        self.selected_axis = None
         self.drag_start_pos = None
-        self.drag_start_value = None
+        self.start_angle = 0.0
 
     def _create_cube_vertices(self, center, size):
-        """Tạo vertices cho một cube ở vị trí center với kích thước size"""
         x, y, z = center
         s = size / 2
-        
-        # 8 góc của cube
         vertices = np.array([
-            # Front face
             [x-s, y-s, z+s], [x+s, y-s, z+s], [x+s, y+s, z+s], [x-s, y+s, z+s],
-            # Back face  
             [x-s, y-s, z-s], [x-s, y+s, z-s], [x+s, y+s, z-s], [x+s, y-s, z-s],
-            # Top face
             [x-s, y+s, z-s], [x-s, y+s, z+s], [x+s, y+s, z+s], [x+s, y+s, z-s],
-            # Bottom face
             [x-s, y-s, z-s], [x+s, y-s, z-s], [x+s, y-s, z+s], [x-s, y-s, z+s],
-            # Right face
             [x+s, y-s, z-s], [x+s, y+s, z-s], [x+s, y+s, z+s], [x+s, y-s, z+s],
-            # Left face
             [x-s, y-s, z-s], [x-s, y-s, z+s], [x-s, y+s, z+s], [x-s, y+s, z-s]
         ], dtype=np.float32)
-        
-        # Indices để vẽ triangles (2 triangles per face * 6 faces = 12 triangles = 36 vertices)
         indices = np.array([
-            # Front
-            0, 1, 2, 0, 2, 3,
-            # Back
-            4, 5, 6, 4, 6, 7,
-            # Top
-            8, 9, 10, 8, 10, 11,
-            # Bottom
-            12, 13, 14, 12, 14, 15,
-            # Right
-            16, 17, 18, 16, 18, 19,
-            # Left
-            20, 21, 22, 20, 22, 23
+            0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11,
+            12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23
         ], dtype=np.uint32)
+        return vertices[indices]
+
+    def _create_rotation_circles(self, radius=2.0, segments=64):
+        circles = {}
+        theta = np.linspace(0, 2*np.pi, segments, endpoint=False)
         
-        # Tạo vertices từ indices
-        triangle_vertices = vertices[indices]
-        return triangle_vertices
+        x_v, y_v, z_v = [], [], []
+        x_c, y_c, z_c = [], [], []
+        
+        for i in range(segments):
+            y = radius * np.cos(theta[i])
+            z = radius * np.sin(theta[i])
+            x_v.append([0.0, y, z])
+            x_c.append([1.0, 0.0, 0.0, 1.0])
+            
+            x = radius * np.cos(theta[i])
+            z = radius * np.sin(theta[i])
+            y_v.append([x, 0.0, z])
+            y_c.append([0.0, 1.0, 0.0, 1.0])
+            
+            x = radius * np.cos(theta[i])
+            y = radius * np.sin(theta[i])
+            z_v.append([x, y, 0.0])
+            z_c.append([0.0, 0.0, 1.0, 1.0])
+            
+        circles['x_vertices'] = np.array(x_v, dtype=np.float32)
+        circles['x_colors'] = np.array(x_c, dtype=np.float32)
+        circles['y_vertices'] = np.array(y_v, dtype=np.float32)
+        circles['y_colors'] = np.array(y_c, dtype=np.float32)
+        circles['z_vertices'] = np.array(z_v, dtype=np.float32)
+        circles['z_colors'] = np.array(z_c, dtype=np.float32)
+        return circles
 
     def project_to_screen(self, point_3d, view_matrix, proj_matrix, win_size):
-        """Hàm chiếu 1 điểm từ thế giới 3D lên tọa độ Pixel 2D trên màn hình"""
         p = np.array([point_3d[0], point_3d[1], point_3d[2], 1.0], dtype=np.float32)
         p = view_matrix @ p
         p = proj_matrix @ p
-        if p[3] != 0:
-            p = p / p[3] # Đưa về [-1, 1]
-            
-        # Chuyển sang Pixel: O(0,0) nằm ở góc trên bên trái
+        if p[3] != 0: p = p / p[3] 
         screen_x = (p[0] + 1.0) * 0.5 * win_size[0]
         screen_y = (1.0 - p[1]) * 0.5 * win_size[1] 
         return np.array([screen_x, screen_y])
 
-    def check_axis_selection(self, mouse_pos, view, projection, win_size, target_pos):
-        # 1. Tìm điểm tâm 2D trên màn hình
-        origin_2d = self.project_to_screen(target_pos, view, projection, win_size)
-        
-        # 2. Tìm điểm ngọn của 3 mũi tên 2D trên màn hình
-        x_tip = self.project_to_screen([target_pos[0] + 2.0, target_pos[1], target_pos[2]], view, projection, win_size)
-        y_tip = self.project_to_screen([target_pos[0], target_pos[1] + 2.0, target_pos[2]], view, projection, win_size)
-        z_tip = self.project_to_screen([target_pos[0], target_pos[1], target_pos[2] + 2.0], view, projection, win_size)
-        
+    def check_axis_selection(self, mouse_pos, view, projection, win_size, target_pos, current_tool):
         mouse = np.array(mouse_pos)
-        
-        # Hàm tính khoảng cách từ điểm (chuột) tới đoạn thẳng (mũi tên)
         def dist_to_segment(p, v, w):
             l2 = np.sum((v - w)**2)
             if l2 == 0: return np.linalg.norm(p - v)
@@ -163,154 +151,177 @@ class TransformGizmo(BaseShape):
             proj = v + t * (w - v)
             return np.linalg.norm(p - proj)
 
-        dist_x = dist_to_segment(mouse, origin_2d, x_tip)
-        dist_y = dist_to_segment(mouse, origin_2d, y_tip)
-        dist_z = dist_to_segment(mouse, origin_2d, z_tip)
-        
-        min_dist = min(dist_x, dist_y, dist_z)
-        
-        # Trúng nếu cách đường kẻ dưới 15 pixels
-        if min_dist < 15.0:
-            if min_dist == dist_x: return 'x'
-            elif min_dist == dist_y: return 'y'
-            else: return 'z'
-        return None
+        # --- KIỂM TRA CHUỘT CHO ROTATE TOOL ---
+        if current_tool == 'rotate':
+            min_dist = float('inf')
+            selected = None
+            
+            def check_ring(ring_v, axis_name):
+                nonlocal min_dist, selected
+                for i in range(len(ring_v)):
+                    p1_3d = np.array(target_pos) + ring_v[i]
+                    p2_3d = np.array(target_pos) + ring_v[(i+1) % len(ring_v)]
+                    
+                    p1_2d = self.project_to_screen(p1_3d, view, projection, win_size)
+                    p2_2d = self.project_to_screen(p2_3d, view, projection, win_size)
+                    
+                    d = dist_to_segment(mouse, p1_2d, p2_2d)
+                    if d < min_dist:
+                        min_dist = d
+                        selected = axis_name
+
+            check_ring(self.rotation_circles['x_vertices'], 'x')
+            check_ring(self.rotation_circles['y_vertices'], 'y')
+            check_ring(self.rotation_circles['z_vertices'], 'z')
+            
+            if min_dist < 15.0: return selected
+            return None
+
+        # --- KIỂM TRA CHUỘT CHO MOVE / SCALE TOOL ---
+        else:
+            origin_2d = self.project_to_screen(target_pos, view, projection, win_size)
+            x_tip = self.project_to_screen([target_pos[0] + 2.0, target_pos[1], target_pos[2]], view, projection, win_size)
+            y_tip = self.project_to_screen([target_pos[0], target_pos[1] + 2.0, target_pos[2]], view, projection, win_size)
+            z_tip = self.project_to_screen([target_pos[0], target_pos[1], target_pos[2] + 2.0], view, projection, win_size)
+            
+            dist_x = dist_to_segment(mouse, origin_2d, x_tip)
+            dist_y = dist_to_segment(mouse, origin_2d, y_tip)
+            dist_z = dist_to_segment(mouse, origin_2d, z_tip)
+            
+            min_dist = min(dist_x, dist_y, dist_z)
+            if min_dist < 15.0:
+                if min_dist == dist_x: return 'x'
+                elif min_dist == dist_y: return 'y'
+                else: return 'z'
+            return None
 
     def handle_mouse_press(self, mouse_pos, target_pos, current_tool, view, proj, win_size):
         if current_tool in ['move', 'rotate', 'scale']:
-            self.selected_axis = self.check_axis_selection(mouse_pos, view, proj, win_size, target_pos)
+            self.selected_axis = self.check_axis_selection(mouse_pos, view, proj, win_size, target_pos, current_tool)
+            
             if self.selected_axis:
                 self.drag_start_pos = mouse_pos
-                self.drag_start_value = {'x': target_pos[0], 'y': target_pos[1], 'z': target_pos[2]}
-                if current_tool == 'scale':
-                    self.drag_start_value = {'x': target_pos[0], 'y': target_pos[1], 'z': target_pos[2]}
-                print(f"[GIZMO] Selected axis: {self.selected_axis}")
+                # Tính góc xoay ban đầu nếu là Rotate Tool
+                if current_tool == 'rotate':
+                    origin_2d = self.project_to_screen(target_pos, view, proj, win_size)
+                    v = np.array(mouse_pos) - origin_2d
+                    self.start_angle = math.atan2(v[1], v[0])
+                    
+                print(f"[GIZMO] Selected axis: {self.selected_axis} for {current_tool}")
 
     def handle_mouse_drag(self, mouse_pos, target_obj, current_tool, view, proj, win_size):
         if self.selected_axis and self.drag_start_pos:
-            # 1. Chiếu trục đang chọn lên màn hình 2D
-            origin_2d = self.project_to_screen(target_obj.position, view, proj, win_size)
-            if self.selected_axis == 'x': tip_3d = [target_obj.position[0] + 1.0, target_obj.position[1], target_obj.position[2]]
-            elif self.selected_axis == 'y': tip_3d = [target_obj.position[0], target_obj.position[1] + 1.0, target_obj.position[2]]
-            else: tip_3d = [target_obj.position[0], target_obj.position[1], target_obj.position[2] + 1.0]
+            
+            # --- LOGIC KÉO CHUỘT CHO ROTATE TOOL (Dùng Góc) ---
+            if current_tool == 'rotate':
+                origin_2d = self.project_to_screen(target_obj.position, view, proj, win_size)
+                v = np.array(mouse_pos) - origin_2d
                 
-            tip_2d = self.project_to_screen(tip_3d, view, proj, win_size)
-            
-            # 2. Vector hướng của mũi tên trên màn hình
-            axis_dir_2d = tip_2d - origin_2d
-            length = np.linalg.norm(axis_dir_2d)
-            if length > 0: axis_dir_2d = axis_dir_2d / length
-            
-            # 3. Vector rê chuột
-            mouse_delta = np.array(mouse_pos) - np.array(self.drag_start_pos)
-            
-            # 4. Tích vô hướng (Rê chuột đúng hướng mũi tên thì đi nhanh, lệch hướng thì đi chậm/không đi)
-            move_amount = np.dot(mouse_delta, axis_dir_2d)
-            speed = 0.02 # Độ nhạy
-            
-            if current_tool == 'move':
-                if self.selected_axis == 'x': target_obj.position[0] += move_amount * speed
-                elif self.selected_axis == 'y': target_obj.position[1] += move_amount * speed
-                elif self.selected_axis == 'z': target_obj.position[2] += move_amount * speed
-            elif current_tool == 'scale':
-                # Scale tool: thay đổi scale của object
-                scale_factor = 1.0 + move_amount * speed * 0.1
-                if self.selected_axis == 'x': 
-                    target_obj.scale[0] *= scale_factor
-                elif self.selected_axis == 'y':
-                    target_obj.scale[1] *= scale_factor
-                elif self.selected_axis == 'z':
-                    target_obj.scale[2] *= scale_factor
-            
-            # Cập nhật vị trí bắt đầu để kéo mượt
-            self.drag_start_pos = mouse_pos
+                # Tính góc xoay hiện tại của chuột
+                curr_angle = math.atan2(v[1], v[0])
+                delta_rad = curr_angle - self.start_angle
+                
+                # Fix lỗi nhảy số khi vượt qua góc Pi/-Pi
+                if delta_rad > math.pi: delta_rad -= 2*math.pi
+                elif delta_rad < -math.pi: delta_rad += 2*math.pi
+                
+                delta_deg = math.degrees(delta_rad)
+                
+                # Cộng dồn Rotation. Tùy trục mà lật dấu cho thuận mắt
+                if self.selected_axis == 'x': target_obj.rotation[0] -= delta_deg
+                elif self.selected_axis == 'y': target_obj.rotation[1] += delta_deg 
+                elif self.selected_axis == 'z': target_obj.rotation[2] -= delta_deg
+                
+                self.start_angle = curr_angle
+                self.drag_start_pos = mouse_pos
+
+            # --- LOGIC KÉO CHUỘT CHO MOVE / SCALE TOOL (Dùng Khoảng Cách) ---
+            else:
+                target_pos = target_obj.position
+                origin_2d = self.project_to_screen(target_pos, view, proj, win_size)
+                
+                if self.selected_axis == 'x': tip_3d = [target_pos[0] + 1.0, target_pos[1], target_pos[2]]
+                elif self.selected_axis == 'y': tip_3d = [target_pos[0], target_pos[1] + 1.0, target_pos[2]]
+                else: tip_3d = [target_pos[0], target_pos[1], target_pos[2] + 1.0]
+                    
+                tip_2d = self.project_to_screen(tip_3d, view, proj, win_size)
+                axis_dir_2d = tip_2d - origin_2d
+                length = np.linalg.norm(axis_dir_2d)
+                if length > 0: axis_dir_2d = axis_dir_2d / length
+                
+                mouse_delta = np.array(mouse_pos) - np.array(self.drag_start_pos)
+                move_amount = np.dot(mouse_delta, axis_dir_2d)
+                speed = 0.02 
+                
+                if current_tool == 'move':
+                    if self.selected_axis == 'x': target_obj.position[0] += move_amount * speed
+                    elif self.selected_axis == 'y': target_obj.position[1] += move_amount * speed
+                    elif self.selected_axis == 'z': target_obj.position[2] += move_amount * speed
+                elif current_tool == 'scale':
+                    scale_factor = 1.0 + move_amount * speed * 0.1
+                    if self.selected_axis == 'x': target_obj.scale[0] *= scale_factor
+                    elif self.selected_axis == 'y': target_obj.scale[1] *= scale_factor
+                    elif self.selected_axis == 'z': target_obj.scale[2] *= scale_factor
+                
+                self.drag_start_pos = mouse_pos
 
     def handle_mouse_release(self):
-        """Handle mouse release"""
         self.selected_axis = None
         self.drag_start_pos = None
-        self.drag_start_value = None
 
     def draw(self, projection, view, position, current_tool="move"):
         GL.glUseProgram(self.shader.render_idx)
-        
-        # --- BƯỚC 1: VẼ 3 ĐƯỜNG THẲNG XYZ (LINE 1.0) ---
-        # Lấy ma trận Transform của Gizmo từ BaseShape
         gizmo_transform = self.get_transform_matrix()
-        # Dịch chuyển tới vị trí của Object
         T_base = np.identity(4, dtype=np.float32)
         T_base[0,3], T_base[1,3], T_base[2,3] = position
         
-        # Kết hợp model matrix cho đường kẻ
-        final_lines_model = gizmo_transform @ T_base
-        modelview_lines = view @ final_lines_model
-        
+        final_model = gizmo_transform @ T_base
+        modelview = view @ final_model
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
-        self.uma.upload_uniform_matrix4fv(modelview_lines, 'modelview', True)
+        self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        GL.glDisable(GL.GL_DEPTH_TEST) # Gizmo luôn hiện trên cùng
-        GL.glLineWidth(1.0) # An toàn cho macOS
+        GL.glDisable(GL.GL_DEPTH_TEST) 
+        GL.glLineWidth(1.0) 
 
-        self.vao_lines.activate()
-        GL.glDrawArrays(GL.GL_LINES, 0, 6) # Vẽ 3 đường thẳng
-
-        # --- BƯỚC 2: VẼ CUBE SCALE NẾU LÀ SCALE TOOL ---
-        if current_tool == 'scale':
-            self.vao_cubes.activate()
-            # Vẽ 3 cube (36 vertices mỗi cube = 108 vertices tổng cộng)
-            GL.glDrawArrays(GL.GL_TRIANGLES, 0, 108)
+        # ======= NẾU LÀ ROTATE TOOL -> VẼ 3 VÒNG TRÒN =======
+        if current_tool == 'rotate':
+            self.vao_rotation.activate()
+            # Vẽ 3 vòng (64 segments mỗi vòng) bằng LINE_LOOP
+            GL.glDrawArrays(GL.GL_LINE_LOOP, 0, 64)   # Vòng X
+            GL.glDrawArrays(GL.GL_LINE_LOOP, 64, 64)  # Vòng Y
+            GL.glDrawArrays(GL.GL_LINE_LOOP, 128, 64) # Vòng Z
+            
+        # ======= NẾU LÀ MOVE/SCALE -> VẼ ĐƯỜNG KẺ + NÓN/CUBE =======
         else:
-            # --- BƯỚC 3: TÁI SỬ DỤNG HÀM DRAW CỦA CÁC KHỐI NÓN CỦA BẠN ---
-            # Chỉ vẽ nón khi không phải scale tool
-            # Cần tính toán Ma trận Model cho từng khối nón để nó gắn vào cuối đường kẻ
+            self.vao_lines.activate()
+            GL.glDrawArrays(GL.GL_LINES, 0, 6) 
 
-            # 1. Mũi tên xanh lá (Y) - Gắn vào cuối đường kẻ Y (độ dài 2.0)
-            # Hướng Y chuẩn, không cần xoay
-            T_y = np.identity(4, dtype=np.float32)
-            T_y[0,3], T_y[1,3], T_y[2,3] = 0.0, 2.0, 0.0 # Tọa độ tương đối so với tâm Gizmo
-            # Kết hợp model matrix
-            final_cone_y_model = gizmo_transform @ T_base @ T_y
-            self.cone_y.draw(projection, view, final_cone_y_model)
+            if current_tool == 'move':
+                T_y = np.identity(4, dtype=np.float32); T_y[1,3] = 2.0
+                T_x = np.identity(4, dtype=np.float32); T_x[0,3] = 2.0
+                T_z = np.identity(4, dtype=np.float32); T_z[2,3] = 2.0
+                
+                self.cone_y.draw(projection, view, gizmo_transform @ T_base @ T_y)
+                R_x = np.array([[0,1,0,0],[-1,0,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+                self.cone_x.draw(projection, view, gizmo_transform @ T_base @ T_x @ R_x)
+                R_z = np.array([[1,0,0,0],[0,0,-1,0],[0,1,0,0],[0,0,0,1]], dtype=np.float32)
+                self.cone_z.draw(projection, view, gizmo_transform @ T_base @ T_z @ R_z)
+                
+            elif current_tool == 'scale':
+                T_y = np.identity(4, dtype=np.float32); T_y[1,3] = 2.0
+                T_x = np.identity(4, dtype=np.float32); T_x[0,3] = 2.0
+                T_z = np.identity(4, dtype=np.float32); T_z[2,3] = 2.0
+                
+                S_cube = np.diag([0.15, 0.15, 0.15, 1.0]).astype(np.float32)
+                self.cube_y.draw(projection, view, gizmo_transform @ T_base @ T_y @ S_cube)
+                self.cube_x.draw(projection, view, gizmo_transform @ T_base @ T_x @ S_cube)
+                self.cube_z.draw(projection, view, gizmo_transform @ T_base @ T_z @ S_cube)
 
-            # 2. Mũi tên đỏ (X) - Gắn vào cuối đường kẻ X (độ dài 2.0)
-            # Cần xoay sang phải (-90 độ quanh trục Z)
-            T_x = np.identity(4, dtype=np.float32)
-            T_x[0,3], T_x[1,3], T_x[2,3] = 2.0, 0.0, 0.0 # Tọa độ tương đối
-            R_x = np.array([
-                [ 0.0, 1.0, 0.0, 0.0],
-                [-1.0, 0.0, 0.0, 0.0],
-                [ 0.0, 0.0, 1.0, 0.0],
-                [ 0.0, 0.0, 0.0, 1.0]
-            ], dtype=np.float32)
-            final_cone_x_model = gizmo_transform @ T_base @ T_x @ R_x
-            self.cone_x.draw(projection, view, final_cone_x_model)
-
-            # 3. Mũi tên xanh dương (Z) - Gắn vào cuối đường kẻ Z (độ dài 2.0)
-            # Cần xoay ra trước (+90 độ quanh trục X)
-            T_z = np.identity(4, dtype=np.float32)
-            T_z[0,3], T_z[1,3], T_z[2,3] = 0.0, 0.0, 2.0 # Tọa độ tương đối
-            R_z = np.array([
-                [ 1.0,  0.0,  0.0, 0.0],
-                [ 0.0,  0.0, -1.0, 0.0], # cos(-90)=0, -sin(-90)=1 (Sửa dấu ở đây)
-                [ 0.0,  1.0,  0.0, 0.0], # sin(-90)=-1, cos(-90)=0 (Sửa dấu ở đây)
-                [ 0.0,  0.0,  0.0, 1.0]
-            ], dtype=np.float32)
-            final_cone_z_model = gizmo_transform @ T_base @ T_z @ R_z
-            self.cone_z.draw(projection, view, final_cone_z_model)
-
-        # Trả lại trạng thái depth cũ
         GL.glEnable(GL.GL_DEPTH_TEST)
 
     def cleanup(self):
-        """Clean up resources"""
-        if hasattr(self, 'vao_lines'):
-            self.vao_lines.delete()
-        if hasattr(self, 'vao_cubes'):
-            self.vao_cubes.delete()
-        if hasattr(self, 'shader'):
-            self.shader.delete()
-        
-        # Cleanup các khối nón
-        self.cone_x.cleanup()
-        self.cone_y.cleanup()
-        self.cone_z.cleanup()
+        if hasattr(self, 'vao_lines'): self.vao_lines.delete()
+        if hasattr(self, 'vao_rotation'): self.vao_rotation.delete()
+        if hasattr(self, 'shader'): self.shader.delete()
+        self.cone_x.cleanup(); self.cone_y.cleanup(); self.cone_z.cleanup()
+        self.cube_x.cleanup(); self.cube_y.cleanup(); self.cube_z.cleanup()
