@@ -102,8 +102,8 @@ class AppController:
         
         # Handle texture for specific hierarchy objects
         if 'browse_texture_for_object' in actions:
-            obj_id = actions['browse_texture_for_object']['obj_id']
-            self._browse_texture_for_specific_object(obj_id)
+            target_obj = actions['browse_texture_for_object']['obj']
+            self._browse_texture_for_specific_object(target_obj)
         
         if 'clear_texture' in actions and 'obj_id' in actions['clear_texture']:
             obj_id = actions['clear_texture']['obj_id']
@@ -193,9 +193,19 @@ class AppController:
             self.model.update_selected_object_data("camera.far", data['value'])
 
         # --- Bổ sung vào controller.py ---
-        if 'select_hierarchy_object' in actions:
-            self.model.select_hierarchy_object(actions['select_hierarchy_object'])
+        if 'select_object' in actions:
+            data = actions['select_object']
+            self.model.scene.select_object(data['object'], data['multi_select'])
+
+        if 'clear_selection' in actions:
+            self.model.scene.clear_selection()
             
+        # Thêm đoạn này vào để cập nhật tự động TẤT CẢ các loại thuộc tính (FOV, Color, Intensity...)
+        if 'update_attr' in actions:
+            data = actions['update_attr']
+            # Cú pháp setattr này cực mạnh: nó tự tìm tên biến (attr) trong object (obj) và gán giá trị mới (val)
+            setattr(data['obj'], data['attr'], data['val'])
+
         if 'update_obj' in actions:
             data = actions['update_obj']
             self.model.update_object_data(data['id'], data['key'], data['val'])
@@ -255,6 +265,34 @@ class AppController:
             print("Tính năng chọn model hiện chỉ hỗ trợ giao diện native trên macOS.")
             print("Vui lòng nhập đường dẫn thủ công.")
 
+    # Đổi tham số obj_id thành target_obj
+    def _browse_texture_for_specific_object(self, target_obj):
+        """Browse texture file for specific hierarchy object"""
+        import platform
+        import subprocess
+
+        if platform.system() == "Darwin":
+            try:
+                script = f'''
+                try
+                    set chosen_file to choose file with prompt "Select Texture File for {target_obj.name} (.png, .jpg, .tga):"
+                    POSIX path of chosen_file
+                end try
+                '''
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    filename = result.stdout.strip()
+                    # Gán trực tiếp vào object
+                    target_obj.texture_filename = filename
+                    print(f"Đã chọn texture cho {target_obj.name}: {filename}")
+                else:
+                    print("Đã hủy chọn file.")
+            except Exception as e:
+                print(f"Lỗi khi mở hộp thoại Mac: {e}")
+        else:
+            print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
+            
     def _browse_model_for_specific_object(self, obj_id):
         """Browse model file for specific hierarchy object"""
         import platform
@@ -336,6 +374,6 @@ class AppController:
             GL.glUseProgram(self.coord_shader.render_idx)
             self.view.draw_coordinate_system(self.coord_system, projection, view)
             
-            self.view.draw_drawables(self.model.drawables, self.model.hierarchy_objects)
+            self.view.draw_drawables(self.model.drawables, self.model.scene.objects)
 
             self.view.end_frame()

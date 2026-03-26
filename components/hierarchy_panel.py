@@ -63,12 +63,23 @@ class HierarchyPanel:
             imgui.end_popup()
         
         if imgui.tree_node("MainScene", imgui.TREE_NODE_DEFAULT_OPEN):
-            for i, obj in enumerate(model.hierarchy_objects):
-                # BẮT BUỘC PHẢI TÁCH TUPLE Ở ĐÂY để không bị lỗi dính object cuối cùng
-                clicked, state = imgui.selectable(f"{obj['name']}##{obj['id']}", obj.get("selected", False))
+            for i, obj in enumerate(model.scene.objects):
+                is_selected = obj in model.scene.selected_objects
+
+                clicked, state = imgui.selectable(f"{obj.name}##{obj.id}", is_selected)
                 if clicked:
-                    actions['select_hierarchy_object'] = i
+                    io = imgui.get_io()
+                    is_multi_select = io.key_super or io.key_ctrl 
+                    
+                    actions['select_object'] = {
+                        'object': obj,
+                        'multi_select': is_multi_select
+                    }
+            
             imgui.tree_pop()
+            
+        if imgui.is_window_hovered() and imgui.is_mouse_clicked(0) and not imgui.is_any_item_hovered():
+            actions['clear_selection'] = True
 
         imgui.end()
         
