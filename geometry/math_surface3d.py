@@ -14,11 +14,17 @@ from libs.buffer import *
 from libs.lighting import LightingManager
 import OpenGL.GL as GL
 
+# Import base shape
+from base_shape import BaseShape
 
-class MathematicalSurface(object):
+
+class MathematicalSurface(BaseShape):
     def __init__(self, vert_shader, frag_shader, func=None, x_range=(-5, 5), y_range=(-5, 5), resolution=50):
+        super().__init__()  # Initialize transform from BaseShape
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
+        self.use_custom_color = False  # Flag to use custom color or auto-generated colors
+        self.original_colors = None  # Store original auto-generated colors
         
         if func is None:
             self.func = lambda x, y: (x**2 + y - 11)**2 + (x + y**2 - 7)**2
@@ -106,6 +112,7 @@ class MathematicalSurface(object):
         self.vertices = np.array(vertices, dtype=np.float32)
         self.normals = np.array(normals, dtype=np.float32)
         self.colors = np.array(colors, dtype=np.float32)
+        self.original_colors = self.colors.copy()  # Store original auto-generated colors
         
         indices = []
         for i in range(self.resolution - 1):
@@ -141,11 +148,12 @@ class MathematicalSurface(object):
 
     def draw(self, projection, view, model):
         """Draw the mathematical surface"""
-        if model is None:
-            model = T.identity()
-            
         GL.glUseProgram(self.shader.render_idx)
-        modelview = view @ model
+        
+        # Use BaseShape transform
+        object_transform = self.get_transform_matrix()
+        final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
+        modelview = view @ final_model
         
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
@@ -159,6 +167,26 @@ class MathematicalSurface(object):
         
         self.vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+    
+    def set_color(self, color):
+        """Set color for the mathematical surface - override BaseShape method"""
+        if self.use_custom_color:
+            # Use custom color
+            self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
+        else:
+            # Use original auto-generated colors (height-based)
+            self.colors = self.original_colors.copy()
+        
+        # Re-setup the VBO to update colors
+        self.vao.activate()
+        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+    
+    def set_color_mode(self, use_custom_color):
+        """Toggle between auto-color and custom color mode"""
+        self.use_custom_color = use_custom_color
 
     def cleanup(self):
         """Clean up resources"""

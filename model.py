@@ -313,9 +313,37 @@ class AppModel:
             
         elif obj_type == "math":
             new_obj = GameObjectMath(name)
-            # Tạm thời để trống drawable, hoặc bạn nạp Math Surface vào đây giống như Cube ở trên
-            new_obj.drawable = None 
+            # Create MathematicalSurface drawable
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
             
+            # Import MathematicalSurface
+            import sys
+            import os
+            math_path = os.path.join(os.path.dirname(__file__), 'geometry')
+            if math_path not in sys.path:
+                sys.path.insert(0, math_path)
+            
+            from math_surface3d import MathematicalSurface
+            new_obj.drawable = MathematicalSurface(vert_shader, frag_shader)
+            new_obj.drawable.setup()
+            
+        elif obj_type == "custom_model":
+            new_obj = GameObjectOBJ(name)
+            # Create ModelLoader drawable
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
+            
+            # Import ModelLoader
+            import sys
+            import os
+            model_path = os.path.join(os.path.dirname(__file__), 'geometry')
+            if model_path not in sys.path:
+                sys.path.insert(0, model_path)
+            
+            from model_loader3d import ModelLoader
+            new_obj.drawable = ModelLoader(vert_shader, frag_shader)
+            new_obj.drawable.setup()
         elif obj_type == "light":
             new_obj = GameObjectLight(name)
             new_obj.drawable = None # Đèn không cần vẽ lưới (hoặc vẽ icon sau)
@@ -403,12 +431,26 @@ class AppModel:
             
             # Special handling for math function or model filename changes
             selected_obj = self.hierarchy_objects[self.selected_hierarchy_idx]
-            if key == "math_data.function" and selected_obj["type"] == "math":
-                self.math_function = value  # Update global math function for compatibility
-                self.load_active_drawable()
+            if key == "math_script" and selected_obj["type"] == "math":
+                # Get the math function from the actual GameObject
+                scene_obj = None
+                for obj in self.scene.objects:
+                    if obj.id == selected_obj["id"]:
+                        scene_obj = obj
+                        break
+                
+                if scene_obj and hasattr(scene_obj, 'math_script'):
+                    math_function = scene_obj.math_script
+                    print(f"[DEBUG] Reloading math object with function: {math_function}")
+                    # Reload the specific math object in hierarchy
+                    self._reload_hierarchy_object(selected_obj, math_function)
+                    print("[DEBUG] Math object reloaded")
             elif key == "model_data.filename" and selected_obj["type"] == "custom_model":
                 self.model_filename = value  # Update global model filename for compatibility
-                self.load_active_drawable()
+                print(f"[DEBUG] Reloading model object with filename: {value}")
+                # Reload the specific model object in hierarchy
+                self._reload_hierarchy_object(selected_obj)
+                print("[DEBUG] Model object reloaded")
         else:
             # If no hierarchy object selected, update mesh components
             if "." in key:
@@ -426,6 +468,82 @@ class AppModel:
         # Update drawable color if active drawable exists
         if self.active_drawable and hasattr(self.active_drawable, 'set_color'):
             self.active_drawable.set_color(color)
+
+    def _reload_hierarchy_object(self, hierarchy_obj, math_function=None):
+        """Reload a specific hierarchy object with updated parameters"""
+        obj_id = hierarchy_obj["id"]
+        obj_type = hierarchy_obj["type"]
+        obj_name = hierarchy_obj["name"]
+        
+        print(f"[DEBUG] Reloading object: {obj_name} (type: {obj_type}, id: {obj_id})")
+        
+        # Find the actual GameObject in scene
+        scene_obj = None
+        for obj in self.scene.objects:
+            if obj.id == obj_id:
+                scene_obj = obj
+                break
+        
+        if not scene_obj:
+            print(f"[DEBUG] Scene object not found for id: {obj_id}")
+            return
+        
+        print(f"[DEBUG] Found scene object: {scene_obj.name}")
+        
+        # Recreate the drawable with updated parameters
+        if obj_type == "math":
+            # Create new MathematicalSurface with updated function
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
+            
+            import sys
+            import os
+            math_path = os.path.join(os.path.dirname(__file__), 'geometry')
+            if math_path not in sys.path:
+                sys.path.insert(0, math_path)
+            
+            from math_surface3d import MathematicalSurface
+            
+            # Use the provided math function or get from object
+            if math_function is None and hasattr(scene_obj, 'math_script'):
+                math_function = scene_obj.math_script
+            
+            # Parse the math function
+            import numpy as np
+            safe_dict = {
+                'x': None, 'y': None,
+                'sin': np.sin, 'cos': np.cos, 'tan': np.tan,
+                'exp': np.exp, 'log': np.log, 'sqrt': np.sqrt,
+                'pi': np.pi, 'e': np.e,
+                'abs': np.abs, 'min': np.minimum, 'max': np.maximum
+            }
+            func_str = f"def f(x, y): return {math_function}"
+            print(f"[DEBUG] Parsing math function: {func_str}")
+            exec(func_str, safe_dict)
+            func = safe_dict['f']
+            
+            scene_obj.drawable = MathematicalSurface(vert_shader, frag_shader, func=func)
+            scene_obj.drawable.setup()
+            print("[DEBUG] MathematicalSurface recreated")
+            
+        elif obj_type == "custom_model":
+            # Create new ModelLoader with updated filename
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
+            
+            import sys
+            import os
+            model_path = os.path.join(os.path.dirname(__file__), 'geometry')
+            if model_path not in sys.path:
+                sys.path.insert(0, model_path)
+            
+            from model_loader3d import ModelLoader
+            print(f"[DEBUG] Creating ModelLoader with filename: {self.model_filename}")
+            scene_obj.drawable = ModelLoader(vert_shader, frag_shader, filename=self.model_filename)
+            scene_obj.drawable.setup()
+            print("[DEBUG] ModelLoader recreated")
+        else:
+            print(f"[DEBUG] Unknown object type: {obj_type}")
 
     def reload_current_shape(self) -> None:
         """Reload the current shape"""
