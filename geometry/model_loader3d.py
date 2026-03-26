@@ -2,6 +2,7 @@ import sys
 import os
 import numpy as np
 import ctypes
+from PIL import Image
 
 # Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,21 +14,28 @@ from libs.lighting import LightingManager
 import OpenGL.GL as GL
 
 # Import base shape
-from base_shape import BaseShape
+from geometry.base_shape import BaseShape
 
 
 class ModelLoader(BaseShape):
     def __init__(self, vert_shader, frag_shader, filename=None):
-        super().__init__()  # Initialize transform from BaseShape
+        super().__init__()
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.filename = filename
+        
+        # --- CÁC BIẾN TRẠNG THÁI CHO SIÊU SHADER ---
+        self.use_flat_color = False
+        self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+        self.use_texture = False
+        self.texture_id = None
+        self.render_mode = 2  # Mặc định là Phong Shading
         
         if filename:
             self.load_model(filename)
         else:
             self._create_default_cube()
-    
+            
     def _create_default_cube(self):
         self.vertices = np.array([
             [-1, -1, +1], [+1, -1, +1], [+1, -1, -1], [-1, -1, -1],
@@ -45,9 +53,10 @@ class ModelLoader(BaseShape):
             [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 1.0, 1.0],
             [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]
         ], dtype=np.float32)
+        
+        self._generate_texcoords()
     
     def load_model(self, filename):
-        """Load model from .obj or .ply file"""
         if not os.path.exists(filename):
             self._create_default_cube()
             return
@@ -60,9 +69,11 @@ class ModelLoader(BaseShape):
             self._load_ply(filename)
         else:
             self._create_default_cube()
+            
+        # SAU KHI LOAD XONG, TỰ ĐỘNG SINH UV ĐỂ DÁN ẢNH
+        self._generate_texcoords()
     
     def _load_obj(self, filename):
-        """Load OBJ file format"""
         vertices = []
         normals = []
         faces = []
@@ -71,16 +82,13 @@ class ModelLoader(BaseShape):
         with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
+                if not line or line.startswith('#'): continue
                     
                 parts = line.split()
-                if not parts:
-                    continue
+                if not parts: continue
                     
                 if parts[0] == 'v':
                     vertices.append([float(x) for x in parts[1:4]])
-
                     if len(parts) >= 7:
                         r, g, b = float(parts[4]), float(parts[5]), float(parts[6])
                         if r > 1.0 or g > 1.0 or b > 1.0:
@@ -93,11 +101,10 @@ class ModelLoader(BaseShape):
                     face_indices = []
                     for part in parts[1:]:
                         indices = part.split('/')
-                        face_indices.append(int(indices[0]) - 1)  # OBJ is 1-indexed
+                        face_indices.append(int(indices[0]) - 1)
                     faces.append(face_indices)
         
         if not vertices:
-            print("Warning: No vertices found in OBJ file. Using default cube.")
             self._create_default_cube()
             return
             
@@ -127,7 +134,6 @@ class ModelLoader(BaseShape):
     
     def _load_ply(self, filename):
         import struct
-        
         vertices = []
         faces = []
         colors = []
@@ -138,8 +144,7 @@ class ModelLoader(BaseShape):
             while True:
                 line = f.readline().decode('utf-8', errors='ignore').strip()
                 header_lines.append(line)
-                if line == 'end_header':
-                    break
+                if line == 'end_header': break
                     
             format_type = 'ascii'
             vertex_count = 0
@@ -162,11 +167,8 @@ class ModelLoader(BaseShape):
                     vertex_props.append((parts[1], parts[2]))
                     
             if vertex_count == 0:
-                print("Warning: PLY file không có đỉnh.")
                 self._create_default_cube()
                 return
-
-            print(f"Đang giải mã {vertex_count} đỉnh và {face_count} mặt (Format: {format_type})...")
 
             if format_type == 'ascii':
                 lines = f.read().decode('utf-8', errors='ignore').splitlines()
@@ -195,7 +197,6 @@ class ModelLoader(BaseShape):
                             
             else:
                 endian = '<' if format_type == 'binary_little_endian' else '>'
-                
                 v_fmt = endian
                 for p_type, _ in vertex_props:
                     if p_type in ['float', 'float32']: v_fmt += 'f'
@@ -210,7 +211,6 @@ class ModelLoader(BaseShape):
                     data = f.read(v_size)
                     if not data: break
                     unpacked = struct.unpack(v_fmt, data)
-                    
                     v = [0.0, 0.0, 0.0]
                     c = [-1.0, -1.0, -1.0]
                     
@@ -230,11 +230,9 @@ class ModelLoader(BaseShape):
                     count_data = f.read(1)
                     if not count_data: break
                     count = struct.unpack(endian + 'B', count_data)[0]
-                    
                     idx_data = f.read(count * 4) 
                     if len(idx_data) < count * 4: break
                     indices = struct.unpack(endian + str(count) + 'i', idx_data)
-                    
                     if count == 3:
                         faces.append(list(indices))
                     elif count == 4:
@@ -242,7 +240,6 @@ class ModelLoader(BaseShape):
                         faces.append([indices[2], indices[1], indices[3]])
 
         if face_count == 0 or len(faces) == 0:
-            print("Warning: File PLY này là Point Cloud. Tạo khối hộp mặc định.")
             self._create_default_cube()
             return
             
@@ -260,23 +257,15 @@ class ModelLoader(BaseShape):
             
         self._generate_normals()
         self._normalize_model()
-        print("Đọc file thành công!")
 
     def _generate_normals(self):
-        """Generate vertex normals from face normals"""
         normals = np.zeros_like(self.vertices)
-        
         for i in range(0, len(self.indices), 3):
-            if i + 2 >= len(self.indices):
-                break
-                
+            if i + 2 >= len(self.indices): break
             i0, i1, i2 = self.indices[i], self.indices[i+1], self.indices[i+2]
-            
-            if i0 >= len(self.vertices) or i1 >= len(self.vertices) or i2 >= len(self.vertices):
-                continue
+            if i0 >= len(self.vertices) or i1 >= len(self.vertices) or i2 >= len(self.vertices): continue
             
             v0, v1, v2 = self.vertices[i0], self.vertices[i1], self.vertices[i2]
-            
             edge1 = v1 - v0
             edge2 = v2 - v0
             face_normal = np.cross(edge1, edge2)
@@ -290,56 +279,71 @@ class ModelLoader(BaseShape):
         self.normals = normals / norms
     
     def _generate_colors(self):
-        """Generate colors based on vertex positions"""
-        v_min = self.vertices.min(axis=0)
-        v_max = self.vertices.max(axis=0)
-        v_range = v_max - v_min
-        v_range[v_range == 0] = 1
+        """Khởi tạo toàn bộ các đỉnh thành màu Trắng thay vì Cầu vồng"""
+        self.colors = np.array([[1.0, 1.0, 1.0]] * len(self.vertices), dtype=np.float32)
         
-        normalized_vertices = (self.vertices - v_min) / v_range
+    def _generate_texcoords(self):
+        """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0 # Tránh chia cho 0
+        norm_v = self.vertices / norms
         
-        self.colors = np.array([
-            [0.2 + 0.8 * v[0], 0.2 + 0.8 * v[1], 0.2 + 0.8 * v[2]] 
-            for v in normalized_vertices
-        ], dtype=np.float32)
+        u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
+        v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
+        self.texcoords = np.column_stack((u, v)).astype(np.float32)
     
     def _normalize_model(self):
-        """Center and scale model to fit in [-2, 2] range"""
-        if len(self.vertices) == 0:
-            return
-            
+        if len(self.vertices) == 0: return
         center = self.vertices.mean(axis=0)
         self.vertices -= center
-        
         max_dist = np.max(np.abs(self.vertices))
         if max_dist > 0:
             scale = 2.0 / max_dist
             self.vertices *= scale
 
     def setup(self):
-        """Setup buffers and shader"""
         self.vao = VAO()
-        
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
-        
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
-        
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
-        
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
         self.vao.add_ebo(self.indices)
         
         self.shader = Shader(self.vert_shader, self.frag_shader)
         self.uma = UManager(self.shader)
-        
         self.lighting = LightingManager(self.uma)
         
         return self
+        
+    def set_texture(self, filepath):
+        if not filepath:
+            self.use_texture = False
+            return
+        try:
+            img = Image.open(filepath).convert("RGBA")
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img_data = img.tobytes("raw", "RGBA", 0, -1)
+            
+            if self.texture_id is None:
+                self.texture_id = GL.glGenTextures(1)
+                
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+            
+            self.use_texture = True
+            print(f"Đã load texture thành công cho Model: {filepath}")
+        except Exception as e:
+            print(f"Lỗi load texture: {e}")
+            self.use_texture = False
 
     def draw(self, projection, view, model):
-        """Draw the loaded model"""
         GL.glUseProgram(self.shader.render_idx)
         
-        # Use BaseShape transform
         object_transform = self.get_transform_matrix()
         final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
         modelview = view @ final_model
@@ -347,30 +351,59 @@ class ModelLoader(BaseShape):
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud()
-        elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1)
-        else:
-            self.lighting.setup_phong(mode=0)
+        # --- CÁC CÔNG TẮC CHO SIÊU SHADER ---
+        loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
+        if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
+        
+        loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
+        if loc_flat_col != -1: 
+            GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
+            
+        loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
+        if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
+        
+        loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
+        if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
+        
+        # ---> FIX LỖI "TẮT ĐÈN": CHÍNH THỨC TREO ĐÈN LÊN CAO <---
+        loc_light = GL.glGetUniformLocation(self.shader.render_idx, "light_pos")
+        if loc_light != -1: 
+            GL.glUniform3f(loc_light, 5.0, 5.0, 5.0)
+            
+        if self.use_texture and self.texture_id is not None:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
+            if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
+            
+        # (Đã xóa dòng self.lighting.setup_phong để chống phá bĩnh)
         
         self.vao.activate()
-        GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+        # Tự động nhận diện vẽ theo Indices hoặc Arrays
+        if hasattr(self, 'indices') and self.indices is not None:
+            GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+        else:
+            GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
+        self.vao.deactivate()
+        
+        if self.use_texture:
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     
     def set_color(self, color):
-        """Set color for the model - override BaseShape method"""
-        # Update colors with new color
         self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
-        # Re-setup the VBO to update colors
         self.vao.activate()
-        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        buffer_idx = self.vao.vbo[1]
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
         GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+        self.flat_color = np.array(color[:3], dtype=np.float32)
+
+    def set_solid_color(self, color):
+        self.use_flat_color = True
+        self.flat_color = np.array(color[:3], dtype=np.float32)
 
     def cleanup(self):
-        """Clean up resources"""
-        if hasattr(self, 'vao'):
-            self.vao.delete()
-        if hasattr(self, 'shader'):
-            self.shader.delete()
+        if hasattr(self, 'vao'): self.vao.delete()
+        if hasattr(self, 'shader'): self.shader.delete()
+        if hasattr(self, 'texture_id') and self.texture_id is not None:
+            GL.glDeleteTextures(1, [self.texture_id])

@@ -31,6 +31,7 @@ class TruncatedCone(BaseShape):
         
         # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu)
         self.vertices, self.normals, self.colors = self._generate_truncated_cone()
+        self._generate_texcoords()
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -75,6 +76,16 @@ class TruncatedCone(BaseShape):
                 np.array(all_normals, dtype=np.float32),
                 np.array(all_colors, dtype=np.float32))
 
+    def _generate_texcoords(self):
+        """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0 # Tránh chia cho 0
+        norm_v = self.vertices / norms
+        
+        u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
+        v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
+        self.texcoords = np.column_stack((u, v)).astype(np.float32)
+
     def _add_cap(self, verts, normals, colors, radius, height, clockwise=True):
         center = [0.0, height, 0.0]
         center_normal = [0.0, 1.0 if height > 0 else -1.0, 0.0]
@@ -97,10 +108,11 @@ class TruncatedCone(BaseShape):
                 colors.append([1.0, 1.0, 1.0])
 
     def setup(self):
-        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal)
+        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal), 3 (UV)
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
         return self
 
     def set_texture(self, filepath):

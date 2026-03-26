@@ -22,7 +22,7 @@ class Rectangle(BaseShape):
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.use_texture = False
         self.texture_id = None
-        self.render_mode = 2  # Mặc định là Phong Shading
+        self.render_mode = 0  # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
         
         # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu, UV)
         self.vertices, self.normals, self.colors, self.texcoords, self.indices = self._generate_rectangle_geometry()
@@ -113,7 +113,6 @@ class Rectangle(BaseShape):
 
     def draw(self, projection, view, model=None):
         GL.glUseProgram(self.shader.render_idx)
-        
         object_transform = self.get_transform_matrix()
         final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
         modelview = view @ final_model
@@ -121,31 +120,33 @@ class Rectangle(BaseShape):
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        # --- CÁC CÔNG TẮC CHO SIÊU SHADER ---
         loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
         if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
-        
         loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
-        if loc_flat_col != -1: 
-            GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
-            
+        if loc_flat_col != -1: GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
         loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
         if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
-        
         loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
         if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
         
+        loc_light = GL.glGetUniformLocation(self.shader.render_idx, "light_pos")
+        if loc_light != -1: GL.glUniform3f(loc_light, 5.0, 5.0, 5.0)
+            
         if self.use_texture and self.texture_id is not None:
             GL.glActiveTexture(GL.GL_TEXTURE0)
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
             loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
             if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
-            
-        if self.render_mode > 0:
-            self.lighting.setup_phong(mode=1)
 
         self.vao.activate()
-        GL.glDrawElements(GL.GL_TRIANGLES, self.indices.shape[0], GL.GL_UNSIGNED_INT, None)
+        
+        # TRÍ TUỆ NHÂN TẠO TỰ NHẬN DIỆN CÁCH VẼ
+        if hasattr(self, 'indices') and self.indices is not None and len(self.indices) > 0:
+            GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+        else:
+            mode = GL.GL_TRIANGLES if len(self.vertices) == 3 else GL.GL_TRIANGLE_FAN
+            GL.glDrawArrays(mode, 0, self.vertices.shape[0])
+            
         self.vao.deactivate()
         
         if self.use_texture:

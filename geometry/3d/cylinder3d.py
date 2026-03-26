@@ -27,8 +27,9 @@ class Cylinder(BaseShape):
         self.texture_id = None
         self.render_mode = 2  # Mặc định là Phong Shading
         
-        # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu)
+        # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu, UV)
         self.vertices, self.normals, self.colors, self.indices = self._generate_cylinder_geometry()
+        self.texcoords = self._generate_cylinder_texcoords()
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -87,12 +88,26 @@ class Cylinder(BaseShape):
                 np.array(normals, dtype=np.float32),
                 np.array(colors, dtype=np.float32),
                 np.array(indices, dtype=np.int32))
+    
+    def _generate_cylinder_texcoords(self):
+        """Generate UV coordinates for cylinder texture mapping"""
+        texcoords = []
+        
+        for i in range(self.segments + 1):
+            u = i / self.segments
+            texcoords.extend([[u, 0.0], [u, 1.0]])
+        
+        # UV cho tâm đáy và tâm đỉnh
+        texcoords.extend([[0.5, 0.0], [0.5, 1.0]])
+        
+        return np.array(texcoords, dtype=np.float32)
 
     def setup(self):
-        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal)
+        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal), 3 (UV)
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
         self.vao.add_ebo(self.indices)
         return self
 

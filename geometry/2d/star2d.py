@@ -4,6 +4,7 @@ import numpy as np
 import OpenGL.GL as GL
 import sys
 import os
+from PIL import Image
 
 # Add parent directory to path to import libs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,41 +24,38 @@ class Star(BaseShape):
         super().__init__()  # Initialize transform from BaseShape
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        self.vertices = [[0, 0, 0]]
-        self.colors = [[1, 1, 1]]
-        self.normals = [[0, 0, 1]]
-
-        self.vertices1 = []
-        self.colors1 = []
-        self.normals1 = []
-
-        self.vertices2 = []
-        self.colors2 = []
-        self.normals2 = []
-
+        
+        # Generate vertices for star
+        vertices = [[0, 0, 0]]
         for i in range(points + 1):
             angle = 2 * np.pi * i / points
-            self.vertices1.append([np.cos(angle), np.sin(angle), 0])
-            self.colors1.append([np.random.random(), np.random.random(), np.random.random()])
-            self.normals1.append([0, 0, 1])
-
-        for i in range(points + 1):
+            vertices.append([np.cos(angle), np.sin(angle), 0])
             angle = 2 * np.pi * i / points + np.pi / points
-            self.vertices2.append([0.5 * np.cos(angle), 0.5 * np.sin(angle), 0])
-            self.colors2.append([np.random.random(), np.random.random(), np.random.random()])
-            self.normals2.append([0, 0, 1])
+            vertices.append([0.5 * np.cos(angle), 0.5 * np.sin(angle), 0])
+        
+        self.vertices = np.array(vertices, dtype=np.float32)
+        
+        # --- BỘ BIẾN TRẠNG THÁI SIÊU SHADER ---
+        self.use_flat_color = False
+        self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+        self.use_texture = False
+        self.texture_id = None
+        self.render_mode = 0  # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
 
-        for i in range(points + 1):
-            self.vertices.append(self.vertices1[i])
-            self.colors.append(self.colors1[i])
-            self.normals.append(self.normals1[i])
-            self.vertices.append(self.vertices2[i])
-            self.colors.append(self.colors2[i])
-            self.normals.append(self.normals2[i])
+        # Thuật toán thông minh: Khối nào thiếu Normal, Color hay UV sẽ tự động được sinh ra!
+        if not hasattr(self, 'normals') or self.normals is None:
+            self.normals = np.array([[0.0, 0.0, 1.0]] * len(self.vertices), dtype=np.float32)
+            
+        if not hasattr(self, 'colors') or self.colors is None:
+            self.colors = np.array([[1.0, 1.0, 1.0]] * len(self.vertices), dtype=np.float32)
 
-        self.vertices = np.array(self.vertices, dtype=np.float32)
-        self.colors = np.array(self.colors, dtype=np.float32)
-        self.normals = np.array(self.normals, dtype=np.float32)
+        if not hasattr(self, 'texcoords') or self.texcoords is None:
+            if len(self.vertices) > 0:
+                u = self.vertices[:, 0] * 0.5 + 0.5
+                v = self.vertices[:, 1] * 0.5 + 0.5
+                self.texcoords = np.column_stack((u, v)).astype(np.float32)
+            else:
+                self.texcoords = np.zeros((0, 2), dtype=np.float32)
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -65,37 +63,92 @@ class Star(BaseShape):
         self.lighting = LightingManager(self.uma)
 
     def setup(self):
-        self.vao.add_vbo(0, self.vertices, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        self.vao.add_vbo(1, self.colors, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
-        if 'gouraud' in self.vert_shader.lower() or 'phong' in self.vert_shader.lower():
-            self.vao.add_vbo(2, self.normals, ncomponents=3, dtype=GL.GL_FLOAT, normalized=False, stride=0, offset=None)
+        self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
+        if hasattr(self, 'indices') and self.indices is not None and len(self.indices) > 0:
+            self.vao.add_ebo(self.indices)
         return self
 
-    def draw(self, projection, view, model):
+    def set_texture(self, filepath):
+        if not filepath:
+            self.use_texture = False
+            return
+        try:
+            img = Image.open(filepath).convert("RGBA")
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img_data = img.tobytes("raw", "RGBA", 0, -1)
+            if self.texture_id is None:
+                self.texture_id = GL.glGenTextures(1)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+            self.use_texture = True
+        except Exception as e:
+            print(f"Lỗi load texture: {e}")
+            self.use_texture = False
+
+    def draw(self, projection, view, model=None):
         GL.glUseProgram(self.shader.render_idx)
-        
-        # Use BaseShape transform
         object_transform = self.get_transform_matrix()
         final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
         modelview = view @ final_model
         
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
-        if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud()
-        elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1)
+        
+        loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
+        if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
+        loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
+        if loc_flat_col != -1: GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
+        loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
+        if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
+        loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
+        if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
+        
+        loc_light = GL.glGetUniformLocation(self.shader.render_idx, "light_pos")
+        if loc_light != -1: GL.glUniform3f(loc_light, 5.0, 5.0, 5.0)
+            
+        if self.use_texture and self.texture_id is not None:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
+            if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
+
         self.vao.activate()
-        GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.vertices.shape[0])
+        
+        # TRÍ TUỆ NHÂN TẠO TỰ NHẬN DIỆN CÁCH VẼ
+        if hasattr(self, 'indices') and self.indices is not None and len(self.indices) > 0:
+            GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+        else:
+            mode = GL.GL_TRIANGLES if len(self.vertices) == 3 else GL.GL_TRIANGLE_FAN
+            GL.glDrawArrays(mode, 0, self.vertices.shape[0])
+            
         self.vao.deactivate()
-    
+        
+        if self.use_texture:
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+
     def set_color(self, color):
-        """Set color for the shape - override BaseShape method"""
-        # Update colors with new color
         self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
-        # Re-setup the VBO to update colors
         self.vao.activate()
-        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        buffer_idx = self.vao.vbo[1]
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
         GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+        self.flat_color = np.array(color[:3], dtype=np.float32)
+
+    def set_solid_color(self, color):
+        self.use_flat_color = True
+        self.flat_color = np.array(color[:3], dtype=np.float32)
+
+    def cleanup(self):
+        if hasattr(self, 'vao'): self.vao.delete()
+        if hasattr(self, 'shader'): self.shader.delete()
+        if hasattr(self, 'texture_id') and self.texture_id is not None:
+            GL.glDeleteTextures(1, [self.texture_id])

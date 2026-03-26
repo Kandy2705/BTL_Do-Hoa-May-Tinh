@@ -91,7 +91,7 @@ class AppModel:
 
     @property
     def shader_names(self) -> List[str]:
-        return ["Color Interpolation", "Gouraud", "Phong"]
+        return ["Solid Color", "Gouraud", "Phong", "Rainbow Interpolation"]
 
     @property
     def category_options(self) -> List[str]:
@@ -283,8 +283,8 @@ class AppModel:
             new_obj = GameObjectOBJ(name)
             
             # Tạo drawable 2D theo shape_name
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             # Import các class shape 2D
             import sys
@@ -335,8 +335,8 @@ class AppModel:
         elif obj_type == "custom_model":
             new_obj = GameObjectOBJ(name)
             # Create ModelLoader drawable
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             # Import ModelLoader
             import sys
@@ -549,8 +549,8 @@ class AppModel:
             
         elif obj_type == "custom_model":
             # Create new ModelLoader with updated filename
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             import sys
             import os

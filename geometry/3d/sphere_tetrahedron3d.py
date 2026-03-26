@@ -67,6 +67,7 @@ class SphereTetrahedron(BaseShape):
         self.vertices = np.array(self.out_verts, dtype=np.float32) * self.radius
         self.normals = self.vertices.copy() / np.linalg.norm(self.vertices, axis=1, keepdims=True)
         self.colors = np.array(self.out_colors, dtype=np.float32)
+        self._generate_texcoords()
 
         self.vao = VAO()
         self.shader = Shader(vert_shader, frag_shader)
@@ -92,11 +93,22 @@ class SphereTetrahedron(BaseShape):
         self._subdivide_with_colors(c, p, o, color_c, color_p, color_o, n - 1)
         self._subdivide_with_colors(m, p, o, color_m, color_p, color_o, n - 1)
 
+    def _generate_texcoords(self):
+        """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0 # Tránh chia cho 0
+        norm_v = self.vertices / norms
+        
+        u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
+        v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
+        self.texcoords = np.column_stack((u, v)).astype(np.float32)
+
     def setup(self):
-        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal)
+        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal), 3 (UV)
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
         return self
 
     def set_texture(self, filepath):
