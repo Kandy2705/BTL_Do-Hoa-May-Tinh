@@ -195,8 +195,8 @@ class Viewer:
             if hasattr(obj, 'drawable') and obj.drawable is not None:
                 if hasattr(obj.drawable, 'set_transform'):
                     obj.drawable.set_transform(obj.position, obj.rotation, obj.scale)
-                if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
-                    obj.drawable.set_color(obj.color[:3])
+                # if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
+                #     obj.drawable.set_color(obj.color[:3])
                 obj.drawable.draw(projection, view, None)
 
         if selected_objects and len(selected_objects) == 1:

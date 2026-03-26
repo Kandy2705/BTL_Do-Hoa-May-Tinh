@@ -15,7 +15,16 @@ out vec2 texcoordInterp;
 out vec3 gouraudLighting; // Biến truyền ánh sáng Gouraud sang Fragment
 
 void main() {
-    colorInterp = color;
+    // --- [B] XỬ LÝ NỘI SUY MÀU MỚI ---
+    if (u_render_mode == 3) {
+        // Nếu chọn Rainbow: Lấy tọa độ chuẩn hóa làm màu RGB (Cực kỳ mượt cho mọi hình khối)
+        vec3 normPos = normalize(position);
+        colorInterp = (normPos + 1.0) / 2.0;
+    } else {
+        // Nếu chọn các mode khác: Lấy đúng cái màu người dùng chọn trên bảng màu
+        colorInterp = color; 
+    }
+
     texcoordInterp = texcoord;
 
     vec4 vertPos4 = modelview * vec4(position, 1.0);

@@ -25,7 +25,7 @@ class Circle(BaseShape):
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.use_texture = False
         self.texture_id = None
-        self.render_mode = 2  # Mặc định là Phong Shading
+        self.render_mode = 0  # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
         
         # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu)
         self.vertices, self.normals, self.colors, self.texcoords = self._generate_circle_geometry()

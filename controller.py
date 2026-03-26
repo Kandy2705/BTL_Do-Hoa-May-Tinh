@@ -258,24 +258,20 @@ class AppController:
 
         # --- BẬT/TẮT GLOBAL FLAT COLOR ---
         if 'toggle_global_flat_color' in actions:
-            # 1. Tạo một biến trạng thái trong model (nếu chưa có thì mặc định là False)
             current_state = getattr(self.model, 'global_flat_color_enabled', False)
-            
-            # 2. Đảo ngược trạng thái (Bật thành Tắt, Tắt thành Bật)
             new_state = not current_state
             self.model.global_flat_color_enabled = new_state
             
-            # 3. Lặp qua TẤT CẢ các vật thể trong cảnh và ép chúng theo trạng thái mới
             for obj in self.model.scene.objects:
                 if hasattr(obj, 'drawable') and obj.drawable:
                     obj.drawable.use_flat_color = new_state
                     
                     if new_state:
-                        # Nếu bật Flat Color, tự động lấy màu hiện tại của object để làm màu phẳng
-                        obj.drawable.set_solid_color(obj.color[:3])
+                        # --- SỬA Ở ĐÂY: Ép toàn bộ thành MÀU TRẮNG thay vì lấy màu của object ---
+                        obj.drawable.set_solid_color([1.0, 1.0, 1.0]) 
             
             status = "BẬT" if new_state else "TẮT"
-            print(f"Đã {status} chế độ Flat Color cho toàn bản đồ!")
+            print(f"Đã {status} chế độ Flat Color (Trắng) cho toàn bản đồ!")
 
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
