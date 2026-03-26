@@ -23,7 +23,7 @@ class HierarchyPanel:
                     if imgui.menu_item(name)[0]:
                         # Add hierarchy object instead of changing category
                         obj_name = f"2D_{name}"
-                        model.add_hierarchy_object(obj_name, "2d")
+                        model.add_hierarchy_object(obj_name, "2d", shape_name=name)
                         model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 model.selected_category = original_cat
                 imgui.end_menu()
@@ -34,7 +34,7 @@ class HierarchyPanel:
                     if imgui.menu_item(name)[0]:
                         # Add hierarchy object instead of changing category
                         obj_name = f"3D_{name}"
-                        model.add_hierarchy_object(obj_name, "3d")
+                        model.add_hierarchy_object(obj_name, "3d", shape_name=name)
                         model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                 model.selected_category = original_cat
                 imgui.end_menu()

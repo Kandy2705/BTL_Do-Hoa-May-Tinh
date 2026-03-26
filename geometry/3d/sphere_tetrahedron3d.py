@@ -23,8 +23,13 @@ def normalize(v):
     n = np.linalg.norm(v)
     return v / n if n > 0 else v
 
-class SphereTetrahedron:
+# Import base shape
+from base_shape import BaseShape
+
+
+class SphereTetrahedron(BaseShape):
     def __init__(self, vert_shader, frag_shader, subdiv=6, radius=0.8):
+        super().__init__()  # Initialize transform from BaseShape
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.subdiv = subdiv
@@ -88,9 +93,12 @@ class SphereTetrahedron:
         return self
 
     def draw(self, projection, view, _model_unused=None):
-        GL.glUseProgram(self.shader.render_idx) 
-
-        modelview = view 
+        GL.glUseProgram(self.shader.render_idx)
+        
+        # Use BaseShape transform
+        object_transform = self.get_transform_matrix()
+        final_model = object_transform @ np.identity(4, dtype=np.float32)
+        modelview = view @ final_model
 
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
@@ -98,3 +106,14 @@ class SphereTetrahedron:
         self.vao.activate()
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
         self.vao.deactivate()
+    
+    def set_color(self, color):
+        """Set color for the sphere tetrahedron - override BaseShape method"""
+        # Update colors with new color
+        self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
+        # Re-setup the VBO to update colors
+        self.vao.activate()
+        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
