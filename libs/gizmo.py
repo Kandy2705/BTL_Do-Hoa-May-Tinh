@@ -16,13 +16,13 @@ class TransformGizmo(BaseShape):
         # --- IMPORT CONE (Cho Move Tool) ---
         cone_module = importlib.import_module("geometry.3d.cone3d")
         Cone = cone_module.Cone
-        self.cone_x = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
-        self.cone_y = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
-        self.cone_z = Cone(vert_shader_basic, frag_shader_basic, lighting_enabled=False)
+        self.cone_x = Cone(vert_shader_basic, frag_shader_basic, radius=0.1, height=0.2, sectors=8)
+        self.cone_y = Cone(vert_shader_basic, frag_shader_basic, radius=0.1, height=0.2, sectors=8)
+        self.cone_z = Cone(vert_shader_basic, frag_shader_basic, radius=0.1, height=0.2, sectors=8)
         
-        self.cone_x.setup(); self.cone_x.set_solid_color([1.0, 0.0, 0.0]) # Red
-        self.cone_y.setup(); self.cone_y.set_solid_color([0.0, 1.0, 0.0]) # Green
-        self.cone_z.setup(); self.cone_z.set_solid_color([0.0, 0.0, 1.0]) # Blue
+        self.cone_x.setup(); self.cone_x.set_color([1.0, 0.0, 0.0]) # Red
+        self.cone_y.setup(); self.cone_y.set_color([0.0, 1.0, 0.0]) # Green
+        self.cone_z.setup(); self.cone_z.set_color([0.0, 0.0, 1.0]) # Blue
 
         # --- TẠO ĐƯỜNG KẺ ---
         self.vertices_lines = np.array([
@@ -41,7 +41,7 @@ class TransformGizmo(BaseShape):
         cube_module = importlib.import_module("geometry.3d.cube3d")
         Cube = cube_module.Cube
         
-        cube_size = 0.15
+        cube_size = 0.05
         cube_offset = 2.0
         self.cube_x_vertices = self._create_cube_vertices([cube_offset, 0, 0], cube_size)
         self.cube_x_colors = np.array([[1.0, 0.0, 0.0]] * 36, dtype=np.float32)  
@@ -312,7 +312,7 @@ class TransformGizmo(BaseShape):
                 T_x = np.identity(4, dtype=np.float32); T_x[0,3] = 2.0
                 T_z = np.identity(4, dtype=np.float32); T_z[2,3] = 2.0
                 
-                S_cube = np.diag([0.15, 0.15, 0.15, 1.0]).astype(np.float32)
+                S_cube = np.diag([0.1, 0.1, 0.1, 1.0]).astype(np.float32)
                 self.cube_y.draw(projection, view, gizmo_transform @ T_base @ T_y @ S_cube)
                 self.cube_x.draw(projection, view, gizmo_transform @ T_base @ T_x @ S_cube)
                 self.cube_z.draw(projection, view, gizmo_transform @ T_base @ T_z @ S_cube)

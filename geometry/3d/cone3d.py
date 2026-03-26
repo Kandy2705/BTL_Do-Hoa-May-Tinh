@@ -1,75 +1,69 @@
-import sys
-import os
+# Hình nón
+import sys, os
 import numpy as np
-import ctypes
-import math
-import warnings
-
-# Add parent directory to path to import libs
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from libs.shader import *
-from libs import transform as T
-from libs.buffer import *
-from libs.lighting import LightingManager
 import OpenGL.GL as GL
+from PIL import Image
+import math
 
-# Import base shape
-from base_shape import BaseShape
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from libs.shader import Shader
+from libs.buffer import VAO, UManager
+from libs.lighting import LightingManager
+from geometry.base_shape import BaseShape
 
 
 class Cone(BaseShape):
-    # --- THAY ĐỔI: Thêm tham số 'lighting_enabled' để bật/tắt ánh sáng ---
-    def __init__(self, vert_shader, frag_shader, func=None, radius=0.15, height=0.4, sectors=16, lighting_enabled=True):
-        super().__init__()  # Initialize transform from BaseShape
+    def __init__(self, vert_shader, frag_shader, radius=0.5, height=1.0, sectors=16):
+        super().__init__()
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.radius = radius
         self.height = height
         self.sectors = sectors
-        self.lighting_enabled = lighting_enabled # Flag to enable/disable lighting
         
-        if func is None:
-            self.func = lambda x, y: (x**2 + y - 11)**2 + (x + y**2 - 7)**2
-        else:
-            self.func = func
-            
-        self._generate_geometry()
+        # --- CÁC BIẾN TRẠNG THÁI CHO SIÊU SHADER ---
+        self.use_flat_color = False
+        self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+        self.use_texture = False
+        self.texture_id = None
+        self.render_mode = 2  # Mặc định là Phong Shading
         
-    def _generate_geometry(self):
-        """Generate vertices, indices, normals and colors for the cone"""
+        # TẠO DỮ LIỆU (Vị trí, Pháp tuyến, Màu)
+        self.vertices, self.normals, self.colors, self.indices = self._generate_cone_geometry()
+
+        self.vao = VAO()
+        self.shader = Shader(vert_shader, frag_shader)
+        self.uma = UManager(self.shader)
+        self.lighting = LightingManager(self.uma)
+        
+    def _generate_cone_geometry(self):
         verts = []
         indices = []
         normals = []
         colors = []
         
-        # 1. Đỉnh đỉnh hình nón (Tip) - Vertex 0
-        verts.extend([0.0, self.height, 0.0])
-        normals.extend([0.0, 1.0, 0.0]) # Hướng lên trên
-        colors.extend([1.0, 1.0, 1.0]) # Mặc định trắng
+        # Đỉnh đỉnh hình nón (Tip)
+        verts.append([0.0, self.height, 0.0])
+        normals.append([0.0, 1.0, 0.0])
+        colors.append([1.0, 1.0, 1.0])
         
-        # 2. Các đỉnh đáy hình nón
+        # Các đỉnh đáy hình nón
         for i in range(self.sectors):
             angle = (2 * math.pi * i) / self.sectors
             x = self.radius * math.sin(angle)
             z = self.radius * math.cos(angle)
-            verts.extend([x, 0.0, z])
+            verts.append([x, 0.0, z])
             
-            # Tính Normal bên hông - cho mục đích chiếu sáng
+            # Tính Normal bên hông
             h_len = math.sqrt(self.radius**2 + self.height**2)
-            normal = np.array([self.height/h_len * math.sin(angle), self.radius/h_len, self.height/h_len * math.cos(angle)])
-            normals.extend(normal)
-            
-            colors.extend([1.0, 1.0, 1.0]) # Mặc định trắng
+            normal = [self.height/h_len * math.sin(angle), self.radius/h_len, self.height/h_len * math.cos(angle)]
+            normals.append(normal)
+            colors.append([1.0, 1.0, 1.0])
 
-        # 3. Tâm đáy hình nón - Vertex (sectors + 1)
-        verts.extend([0.0, 0.0, 0.0])
-        normals.extend([0.0, -1.0, 0.0]) # Hướng xuống dưới
-        colors.extend([1.0, 1.0, 1.0]) # Mặc định trắng
-        
-        self.vertices = np.array(verts, dtype=np.float32)
-        self.normals = np.array(normals, dtype=np.float32)
-        self.colors = np.array(colors, dtype=np.float32)
+        # Tâm đáy hình nón
+        verts.append([0.0, 0.0, 0.0])
+        normals.append([0.0, -1.0, 0.0])
+        colors.append([1.0, 1.0, 1.0])
         
         # Tạo các tam giác
         # Tam giác bên hông
@@ -77,85 +71,107 @@ class Cone(BaseShape):
             next_v = (i % self.sectors) + 1
             indices.extend([0, next_v, i])
             
-        # Tam giác đáy (bít kín đáy)
+        # Tam giác đáy
         center_idx = self.sectors + 1
         for i in range(1, self.sectors + 1):
             next_v = (i % self.sectors) + 1
             indices.extend([center_idx, i, next_v])
             
-        self.indices = np.array(indices, dtype=np.int32)
+        return (np.array(verts, dtype=np.float32), 
+                np.array(normals, dtype=np.float32),
+                np.array(colors, dtype=np.float32),
+                np.array(indices, dtype=np.int32))
         
     def setup(self):
-        """Setup buffers and shader"""
-        self.vao = VAO()
-        
-        # VAO 0: Vertices
+        # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal)
         self.vao.add_vbo(0, self.vertices, ncomponents=3, stride=0, offset=None)
-        
-        # VAO 1: Colors
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
-        
-        # VAO 2: Normals
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
-        
         self.vao.add_ebo(self.indices)
-        
-        self.shader = Shader(self.vert_shader, self.frag_shader)
-        self.uma = UManager(self.shader)
-        
-        # --- THAY ĐỔI: Chỉ khởi tạo LightingManager nếu được bật ---
-        if self.lighting_enabled:
-            self.lighting = LightingManager(self.uma)
-        
         return self
 
-    def draw(self, projection, view, model):
-        """Draw the cone"""
+    def set_texture(self, filepath):
+        if not filepath:
+            self.use_texture = False
+            return
+        try:
+            img = Image.open(filepath).convert("RGBA")
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img_data = img.tobytes("raw", "RGBA", 0, -1)
+            
+            if self.texture_id is None:
+                self.texture_id = GL.glGenTextures(1)
+                
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+            
+            self.use_texture = True
+            print(f"Đã load texture thành công: {filepath}")
+        except Exception as e:
+            print(f"Lỗi load texture: {e}")
+            self.use_texture = False
+
+    def draw(self, projection, view, model=None):
         GL.glUseProgram(self.shader.render_idx)
         
-        # Combine model matrices
-        if hasattr(self, 'get_transform_matrix'):
-            # Gộp transform của BaseShape
-            object_transform = self.get_transform_matrix()
-            final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
-        else:
-            final_model = (model if model is not None else np.identity(4, dtype=np.float32))
-            
+        object_transform = self.get_transform_matrix()
+        final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
         modelview = view @ final_model
-        
+
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        # --- THAY ĐỔI: Chỉ setup lighting nếu được bật ---
-        if self.lighting_enabled and hasattr(self, 'lighting'):
-            if 'gouraud' in self.vert_shader.lower():
-                self.lighting.setup_gouraud()
-            elif 'phong' in self.vert_shader.lower():
-                self.lighting.setup_phong(mode=1)
-            else:
-                self.lighting.setup_phong(mode=0)
+        # --- CÁC CÔNG TẮC CHO SIÊU SHADER ---
+        loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
+        if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
         
+        loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
+        if loc_flat_col != -1: 
+            GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
+            
+        loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
+        if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
+        
+        loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
+        if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
+        
+        if self.use_texture and self.texture_id is not None:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
+            if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
+            
+        if self.render_mode > 0:
+            self.lighting.setup_phong(mode=1)
+
         self.vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
-    
-    # --- THÊM HÀM MỚI: Dùng cho Gizmo để gán màu đơn sắc ---
-    def set_solid_color(self, color):
-        """Set a single solid color for the entire cone (RGBA list)"""
-        if len(color) < 4:
-            # Add Alpha=1.0 if not provided
-            color = list(color) + [1.0]
-            
-        # Tạo mảng màu đơn sắc cho tất cả  đỉnh
-        colors_rgba = np.array([color] * len(self.vertices), dtype=np.float32)
+        self.vao.deactivate()
         
-        # Cập nhật dữ liệu màu mới lên Card Đồ Họa (GPU)
+        if self.use_texture:
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    
+    def set_color(self, color):
+        self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
         self.vao.activate()
-        # VBO Màu sắc nằm ở location 1, 4 thành phần (RGBA)
-        self.vao.add_vbo(1, colors_rgba, ncomponents=4, stride=0, offset=None)
+        buffer_idx = self.vao.vbo[1]
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+        
+        self.flat_color = np.array(color[:3], dtype=np.float32)
+
+    def set_solid_color(self, color):
+        self.use_flat_color = True
+        self.flat_color = np.array(color[:3], dtype=np.float32)
 
     def cleanup(self):
-        """Clean up resources"""
-        if hasattr(self, 'vao'):
-            self.vao.delete()
-        if hasattr(self, 'shader'):
-            self.shader.delete()
+        if hasattr(self, 'vao'): self.vao.delete()
+        if hasattr(self, 'shader'): self.shader.delete()
+        if hasattr(self, 'texture_id') and self.texture_id is not None:
+            GL.glDeleteTextures(1, [self.texture_id])

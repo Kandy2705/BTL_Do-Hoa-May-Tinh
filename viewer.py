@@ -241,8 +241,8 @@ class Viewer:
             actions['toggle_coord_system'] = True
             
         imgui.same_line()
-        if imgui.button(" Shaded", 85, 22):
-            print("Đã chọn Shaded Mode")
+        if imgui.button(" Flat Color", 85, 22):
+            actions['toggle_global_flat_color'] = True
             
         imgui.end()
         imgui.pop_style_color()

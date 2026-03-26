@@ -129,6 +129,12 @@ class AppController:
         if 'clear_texture' in actions and 'obj_id' in actions['clear_texture']:
             obj_id = actions['clear_texture']['obj_id']
             self.model.update_object_data(obj_id, "mesh_renderer.texture_filename", "")
+            
+            target_obj = next((o for o in self.model.scene.objects if o.id == obj_id), None)
+            if target_obj and hasattr(target_obj, 'drawable') and target_obj.drawable:
+                if hasattr(target_obj.drawable, 'set_texture'):
+                    target_obj.drawable.set_texture("")
+                
             print(f"Texture cleared for object {obj_id}")
         
         # Add Light and Camera actions
@@ -250,6 +256,27 @@ class AppController:
             self.model.active_tool = actions['set_tool']
             print(f"Đã chuyển sang công cụ: {self.model.active_tool}")
 
+        # --- BẬT/TẮT GLOBAL FLAT COLOR ---
+        if 'toggle_global_flat_color' in actions:
+            # 1. Tạo một biến trạng thái trong model (nếu chưa có thì mặc định là False)
+            current_state = getattr(self.model, 'global_flat_color_enabled', False)
+            
+            # 2. Đảo ngược trạng thái (Bật thành Tắt, Tắt thành Bật)
+            new_state = not current_state
+            self.model.global_flat_color_enabled = new_state
+            
+            # 3. Lặp qua TẤT CẢ các vật thể trong cảnh và ép chúng theo trạng thái mới
+            for obj in self.model.scene.objects:
+                if hasattr(obj, 'drawable') and obj.drawable:
+                    obj.drawable.use_flat_color = new_state
+                    
+                    if new_state:
+                        # Nếu bật Flat Color, tự động lấy màu hiện tại của object để làm màu phẳng
+                        obj.drawable.set_solid_color(obj.color[:3])
+            
+            status = "BẬT" if new_state else "TẮT"
+            print(f"Đã {status} chế độ Flat Color cho toàn bản đồ!")
+
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
         import platform
@@ -337,6 +364,13 @@ class AppController:
                     filename = result.stdout.strip()
                     # Gán trực tiếp vào object
                     target_obj.texture_filename = filename
+                    
+                    if hasattr(target_obj, 'drawable') and target_obj.drawable:
+                        if hasattr(target_obj.drawable, 'set_texture'):
+                            target_obj.drawable.set_texture(filename)
+                        else:
+                            print(f"⚠️ Khối {target_obj.name} chưa được nâng cấp để hỗ trợ dán ảnh UV!")
+                        
                     print(f"Đã chọn texture cho {target_obj.name}: {filename}")
                 else:
                     print("Đã hủy chọn file.")
@@ -373,33 +407,33 @@ class AppController:
             print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
             print("Vui lòng nhập đường dẫn thủ công.")
 
-    def _browse_texture_for_specific_object(self, obj_id):
-        """Browse texture file for specific hierarchy object"""
-        import platform
-        import subprocess
+    # def _browse_texture_for_specific_object(self, obj_id):
+    #     """Browse texture file for specific hierarchy object"""
+    #     import platform
+    #     import subprocess
 
-        if platform.system() == "Darwin":
-            try:
-                script = f'''
-                try
-                    set chosen_file to choose file with prompt "Select Texture File for Object {obj_id} (.png, .jpg, .tga):"
-                    POSIX path of chosen_file
-                end try
-                '''
-                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+    #     if platform.system() == "Darwin":
+    #         try:
+    #             script = f'''
+    #             try
+    #                 set chosen_file to choose file with prompt "Select Texture File for Object {obj_id} (.png, .jpg, .tga):"
+    #                 POSIX path of chosen_file
+    #             end try
+    #             '''
+    #             result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
                 
-                if result.returncode == 0 and result.stdout.strip():
-                    filename = result.stdout.strip()
-                    # Update the specific object's mesh renderer data
-                    self.model.update_object_data(obj_id, "mesh_renderer.texture_filename", filename)
-                    print(f"Đã chọn texture cho object {obj_id}: {filename}")
-                else:
-                    print("Đã hủy chọn file.")
-            except Exception as e:
-                print(f"Lỗi khi mở hộp thoại Mac: {e}")
-        else:
-            print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
-            print("Vui lòng nhập đường dẫn thủ công.")
+    #             if result.returncode == 0 and result.stdout.strip():
+    #                 filename = result.stdout.strip()
+    #                 # Update the specific object's mesh renderer data
+    #                 self.model.update_object_data(obj_id, "mesh_renderer.texture_filename", filename)
+    #                 print(f"Đã chọn texture cho object {obj_id}: {filename}")
+    #             else:
+    #                 print("Đã hủy chọn file.")
+    #         except Exception as e:
+    #             print(f"Lỗi khi mở hộp thoại Mac: {e}")
+    #     else:
+    #         print("Tính năng chọn texture hiện chỉ hỗ trợ giao diện native trên macOS.")
+    #         print("Vui lòng nhập đường dẫn thủ công.")
 
     def run(self) -> None:
         while not self.view.should_close():
