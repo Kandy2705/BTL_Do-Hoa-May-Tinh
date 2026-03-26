@@ -39,7 +39,8 @@ class AppController:
         pass
     
     def on_key(self, window, key, scancode, action, mods):
-        if action == glfw.PRESS:
+        # Dùng PRESS (nhấn) và REPEAT (giữ phím) để camera trượt mượt mà
+        if action == glfw.PRESS or action == glfw.REPEAT:
             if key == glfw.KEY_W:
                 self.view.cycle_polygon_mode()
             elif key == glfw.KEY_Q:
@@ -48,6 +49,19 @@ class AppController:
                 self.model.set_shader((self.model.selected_shader + 1) % 3)
             elif key == glfw.KEY_G:
                 self.coord_system.toggle_visibility()
+                
+            elif key == glfw.KEY_UP:
+                if hasattr(self.view.trackball, 'pan'):
+                    self.view.trackball.pan(0, -20)  # Lên
+            elif key == glfw.KEY_DOWN:
+                if hasattr(self.view.trackball, 'pan'):
+                    self.view.trackball.pan(0, 20)   # Xuống
+            elif key == glfw.KEY_LEFT:
+                if hasattr(self.view.trackball, 'pan'):
+                    self.view.trackball.pan(20, 0)   # Trái
+            elif key == glfw.KEY_RIGHT:
+                if hasattr(self.view.trackball, 'pan'):
+                    self.view.trackball.pan(-20, 0)  # Phải
 
     def _setup_coordinate_system(self):
         """Setup coordinate system with simple color shader"""
