@@ -116,7 +116,8 @@ class Viewer:
                     proj = self.trackball.projection_matrix(glfw.get_window_size(window))
                     win_size = glfw.get_window_size(window)
                     
-                    self.gizmo.handle_mouse_drag(mouse_pos, target.position, current_tool, view, proj, win_size)
+                    # Kéo Gizmo
+                    self.gizmo.handle_mouse_drag(mouse_pos, target, current_tool, view, proj, win_size)
         
         # Cập nhật vị trí chuột cuối cùng
         self.last_mouse_pos = (xpos, ypos)
@@ -203,7 +204,7 @@ class Viewer:
             # Nếu đang chọn tool Move, Rotate hoặc Scale thì hiện Gizmo lên
             if active_tool in ['move', 'rotate', 'scale']:
                 # Truyền vị trí của target vào để nó vẽ trục XYZ ra
-                self.gizmo.draw(projection, view, target.position)
+                self.gizmo.draw(projection, view, target.position, active_tool)
                 
                 
 
