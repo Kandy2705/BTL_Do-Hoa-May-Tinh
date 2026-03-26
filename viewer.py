@@ -111,7 +111,7 @@ class Viewer:
         self.imgui_impl.render(imgui.get_draw_data())
         glfw.swap_buffers(self.win)
 
-    def draw_drawables(self, drawables, hierarchy_objects):
+    def draw_drawables(self, drawables, scene_objects):
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
         
@@ -119,46 +119,19 @@ class Viewer:
         for drawable in drawables:
             drawable.draw(projection, view, None)
         
-        # Draw hierarchy objects
-        hierarchy_drawables = []
-        for i, obj in enumerate(hierarchy_objects):
-            if obj["type"] in ["3d", "math", "custom_model"]:
-                # Create drawable for this hierarchy object
-                try:
-                    if obj["type"] == "3d":
-                        # Import and create Cube as default 3D object
-                        from geometry import cube3d
-                        drawable = cube3d.Cube("./shaders/basic.vert", "./shaders/basic.frag")
-                        
-                    elif obj["type"] == "math":
-                        # Skip Math Surface for now - focus on texture UI
-                        continue
-                        
-                    elif obj["type"] == "custom_model":
-                        # Import and create Model Loader
-                        from geometry import model_loader3d
-                        drawable = model_loader3d.ModelLoader("")
-                    
-                    # Apply transform if drawable supports it
-                    if hasattr(drawable, 'set_transform'):
-                        drawable.set_transform(
-                            obj["transform"]["position"],
-                            obj["transform"]["rotation"],
-                            obj["transform"]["scale"]
-                        )
-                    
-                    # Apply color if mesh renderer exists
-                    if "mesh_renderer" in obj and hasattr(drawable, 'set_color'):
-                        drawable.set_color(obj["mesh_renderer"]["color"])
-                    
-                    hierarchy_drawables.append(drawable)
-                    
-                except Exception as e:
-                    print(f"Failed to create drawable for {obj['name']}: {e}")
-        
-        # Draw all hierarchy objects
-        for drawable in hierarchy_drawables:
-            drawable.draw(projection, view, None)
+        for obj in scene_objects:
+            if not getattr(obj, 'visible', True):
+                continue 
+
+            if hasattr(obj, 'drawable') and obj.drawable is not None:
+                
+                if hasattr(obj.drawable, 'set_transform'):
+                    obj.drawable.set_transform(obj.position, obj.rotation, obj.scale)
+                
+                if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
+                    obj.drawable.set_color(obj.color[:3])
+                
+                obj.drawable.draw(projection, view, None)
                 
                 
 

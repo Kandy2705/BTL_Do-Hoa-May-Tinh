@@ -4,6 +4,9 @@ import importlib
 import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+# Import Scene class
+from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
+
 
 ShaderPaths = Tuple[str, str]
 
@@ -15,8 +18,9 @@ def _default_shader_paths() -> ShaderPaths:
 class AppModel:
 
     def __init__(self) -> None:
+        from components.scene import Scene
         self.selected_idx: int = 0
-        self.selected_category: int = 0  # 0: 2D, 1: 3D, 2: Mathematical Surface, 3: Model from file, 4: SGD
+        self.selected_category: int = 0  # 0: 2D, 1: 3D, 2: Mathematical Surface,3: Model from file, 4: SGD
         self.selected_shader: int = 0
 
         self.active_drawable: Optional[Any] = None
@@ -31,25 +35,11 @@ class AppModel:
         self.object_type: str = "mesh"  # "mesh", "light", "camera"
         self.selected_hierarchy_idx = -1  # -1 means no hierarchy object selected
         
+        # Initialize Scene
+        self.scene = Scene()
+        
         # Hierarchy objects list - REFACTORED: Each object is now a GameObject with proper structure
-        self.hierarchy_objects = [
-            {
-                "id": 0, "name": "Main Camera", "type": "camera", "selected": False,
-                "transform": {"position": [0.0, 1.0, -10.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
-                "camera_data": {"fov": 60.0, "near": 0.1, "far": 100.0}
-            },
-            {
-                "id": 1, "name": "Directional Light", "type": "light", "selected": False,
-                "transform": {"position": [0.0, 3.0, 0.0], "rotation": [50.0, -30.0, 0.0], "scale": [1.0, 1.0, 1.0]},
-                "light_data": {"intensity": 1.0, "color": [1.0, 1.0, 0.9]}
-            },
-            {
-                "id": 2, "name": "Math Surface", "type": "math", "selected": False,
-                "transform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
-                "math_data": {"function": "(x**2 + y - 11)**2"}
-            }
-        ]
-        self.next_object_id = 4  # For generating unique IDs
+        self.hierarchy_objects = []
         
         # Component data for mesh objects
         self.mesh_components = {
@@ -241,28 +231,36 @@ class AppModel:
             self.object_type = obj_type
 
     def add_hierarchy_object(self, name: str, obj_type: str) -> None:
-        """Add new object to hierarchy with proper GameObject structure"""
-        new_obj = {
-            "id": self.next_object_id,
-            "name": name,
-            "type": obj_type,
-            "transform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
-        }
+        from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
         
-        # Add type-specific components
-        if obj_type == "camera":
-            new_obj["camera"] = {"fov": 45.0, "near": 0.1, "far": 100.0}
+        # 1. Khởi tạo đúng class
+        if obj_type in ["custom_model"]:
+            new_obj = GameObjectOBJ(name)
+            
+            # BƠM MESH CHO OBJECT: Lấy khối Cube làm mặc định
+            from geometry import Cube   
+            # (Bạn có thể đổi đường dẫn shader cho đúng với file của bạn nếu cần)
+            new_obj.drawable = Cube("./shaders/color_interp.vert", "./shaders/color_interp.frag")
+            new_obj.drawable.setup() # Gọi setup để nạp vào GPU
+            
+        elif obj_type == "math":
+            new_obj = GameObjectMath(name)
+            # Tạm thời để trống drawable, hoặc bạn nạp Math Surface vào đây giống như Cube ở trên
+            new_obj.drawable = None 
+            
         elif obj_type == "light":
-            new_obj["light_data"] = {"intensity": 1.0, "color": [1.0, 1.0, 1.0]}
-        elif obj_type in ["2d", "3d", "math", "custom_model"]:
-            new_obj["mesh_renderer"] = {"shader_idx": 0, "color": [1.0, 0.5, 0.0]}
-            if obj_type == "math":
-                new_obj["math_data"] = {"function": "(x**2 + y - 11)**2 + (x + y**2 - 7)**2"}
-            elif obj_type == "custom_model":
-                new_obj["model_data"] = {"filename": ""}
-        
-        self.hierarchy_objects.append(new_obj)
-        self.next_object_id += 1
+            new_obj = GameObjectLight(name)
+            new_obj.drawable = None # Đèn không cần vẽ lưới (hoặc vẽ icon sau)
+        elif obj_type == "camera":
+            new_obj = GameObjectCamera(name)
+            new_obj.drawable = None
+        else:
+            new_obj = GameObject(name)
+            new_obj.drawable = None
+            
+        # 2. Thêm vào Scene
+        self.scene.add_object(new_obj)
+        self.scene.select_object(new_obj)
     
     def select_hierarchy_object(self, idx: int) -> None:
         """Select hierarchy object by index"""
