@@ -13,8 +13,6 @@ class AppController:
     def __init__(self, model: Optional[AppModel] = None, view: Optional[Viewer] = None) -> None:
         self.view = view or Viewer()
         self.model = model or AppModel()
-
-        self.model.load_active_drawable()
         
         self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
         self._setup_coordinate_system()

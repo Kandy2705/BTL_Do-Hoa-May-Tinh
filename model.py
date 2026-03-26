@@ -19,8 +19,8 @@ class AppModel:
 
     def __init__(self) -> None:
         from components.scene import Scene
-        self.selected_idx: int = 0
-        self.selected_category: int = 0  # 0: 2D, 1: 3D, 2: Mathematical Surface,3: Model from file, 4: SGD
+        self.selected_idx: int = -1  # -1 means no shape selected
+        self.selected_category: int = 1  # 1: 3D (default to 3D instead of 2D)
         self.selected_shader: int = 0
 
         self.active_drawable: Optional[Any] = None
@@ -141,7 +141,10 @@ class AppModel:
 
     def load_active_drawable(self) -> None:
         self.active_drawable = None
-        self.drawables = []
+        self.drawables: List[Any] = []
+
+        if self.selected_idx == -1:  # No shape selected
+            return
 
         if not (0 <= self.selected_idx < len(self._shape_factories())):
             return
@@ -200,7 +203,7 @@ class AppModel:
         if category == self.selected_category:
             return
         self.selected_category = category
-        self.selected_idx = 0 
+        self.selected_idx = -1  # Don't auto-select first shape
         self.load_active_drawable()
 
     def set_shader(self, shader_idx: int) -> None:
@@ -230,18 +233,83 @@ class AppModel:
         if obj_type in ["mesh", "light", "camera"]:
             self.object_type = obj_type
 
-    def add_hierarchy_object(self, name: str, obj_type: str) -> None:
+    def add_hierarchy_object(self, name: str, obj_type: str, shape_name: str = "Cube") -> None:
         from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
+        import numpy as np
         
         # 1. Khởi tạo đúng class
-        if obj_type in ["custom_model"]:
+        if obj_type in ["3d", "custom_model"]:
             new_obj = GameObjectOBJ(name)
             
-            # BƠM MESH CHO OBJECT: Lấy khối Cube làm mặc định
-            from geometry import Cube   
-            # (Bạn có thể đổi đường dẫn shader cho đúng với file của bạn nếu cần)
-            new_obj.drawable = Cube("./shaders/color_interp.vert", "./shaders/color_interp.frag")
-            new_obj.drawable.setup() # Gọi setup để nạp vào GPU
+            # Tạo drawable theo shape_name
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
+            
+            # Import các class shape 3D
+            import sys
+            import os
+            shape3d_path = os.path.join(os.path.dirname(__file__), 'geometry', '3d')
+            if shape3d_path not in sys.path:
+                sys.path.insert(0, shape3d_path)
+            
+            # Map shape names to classes
+            shape_classes = {
+                "Cube": "cube3d.Cube",
+                "Sphere (Tetrahedron)": "sphere_tetrahedron3d.SphereTetrahedron",
+                "Sphere (Grid)": "sphere_grid3d.SphereGrid", 
+                "Sphere (Lat-Long)": "sphere_latlong3d.SphereLatLong",
+                "Cylinder": "cylinder3d.Cylinder",
+                "Cone": "cone3d.Cone",
+                "Truncated Cone": "truncated_cone3d.TruncatedCone",
+                "Tetrahedron": "tetrahedron3d.Tetrahedron",
+                "Torus": "torus3d.Torus",
+                "Prism": "prism3d.Prism"
+            }
+            
+            shape_class_name = shape_classes.get(shape_name, "cube3d.Cube")
+            module_name, class_name = shape_class_name.split('.')
+            
+            # Import và tạo instance
+            shape_module = __import__(module_name, fromlist=[class_name])
+            shape_class = getattr(shape_module, class_name)
+            new_obj.drawable = shape_class(vert_shader, frag_shader)
+            new_obj.drawable.setup()
+            
+        elif obj_type == "2d":
+            new_obj = GameObjectOBJ(name)
+            
+            # Tạo drawable 2D theo shape_name
+            vert_shader = "./shaders/color_interp.vert"
+            frag_shader = "./shaders/color_interp.frag"
+            
+            # Import các class shape 2D
+            import sys
+            import os
+            shape2d_path = os.path.join(os.path.dirname(__file__), 'geometry', '2d')
+            if shape2d_path not in sys.path:
+                sys.path.insert(0, shape2d_path)
+            
+            # Map 2D shape names to classes
+            shape_classes_2d = {
+                "Triangle": "triangle2d.Triangle",
+                "Rectangle": "rectangle2d.Rectangle",
+                "Pentagon": "pentagon2d.Pentagon",
+                "Hexagon": "hexagon2d.Hexagon",
+                "Circle": "circle2d.Circle",
+                "Ellipse": "ellipse2d.Ellipse",
+                "Trapezoid": "trapezoid2d.Trapezoid",
+                "Star": "star2d.Star",
+                "Arrow": "arrow2d.Arrow"
+            }
+            
+            shape_class_name = shape_classes_2d.get(shape_name, "triangle2d.Triangle")
+            module_name, class_name = shape_class_name.split('.')
+            
+            # Import và tạo instance
+            shape_module = __import__(module_name, fromlist=[class_name])
+            shape_class = getattr(shape_module, class_name)
+            new_obj.drawable = shape_class(vert_shader, frag_shader)
+            new_obj.drawable.setup()
             
         elif obj_type == "math":
             new_obj = GameObjectMath(name)
@@ -261,6 +329,16 @@ class AppModel:
         # 2. Thêm vào Scene
         self.scene.add_object(new_obj)
         self.scene.select_object(new_obj)
+        
+        # 3. Thêm vào hierarchy_objects cho UI compatibility
+        hierarchy_obj = {
+            "id": new_obj.id,
+            "name": new_obj.name,
+            "type": obj_type,
+            "selected": True,
+            "visible": new_obj.visible
+        }
+        self.hierarchy_objects.append(hierarchy_obj)
     
     def select_hierarchy_object(self, idx: int) -> None:
         """Select hierarchy object by index"""

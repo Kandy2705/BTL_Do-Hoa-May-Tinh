@@ -11,9 +11,12 @@ from libs.shader import Shader
 from libs.buffer import VAO, UManager
 from libs.lighting import LightingManager
 
+from base_shape import BaseShape
 
-class Cone:
+
+class Cone(BaseShape):
     def __init__(self, vert_shader, frag_shader, slices=20):
+        super().__init__()  # Initialize transform from BaseShape
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.slices = slices
@@ -62,7 +65,12 @@ class Cone:
 
     def draw(self, projection, view, model):
         GL.glUseProgram(self.shader.render_idx)
-        modelview = view @ (model if model is not None else np.identity(4, dtype=np.float32))
+        
+        # Use BaseShape transform
+        object_transform = self.get_transform_matrix()
+        final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
+        modelview = view @ final_model
+        
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         if 'gouraud' in self.vert_shader.lower():
@@ -72,3 +80,14 @@ class Cone:
         self.vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, self.indices.size, GL.GL_UNSIGNED_INT, None)
         self.vao.deactivate()
+    
+    def set_color(self, color):
+        """Set color for the cone - override BaseShape method"""
+        # Update colors with new color
+        self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
+        # Re-setup the VBO to update colors
+        self.vao.activate()
+        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
