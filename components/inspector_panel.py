@@ -102,9 +102,18 @@ class InspectorPanel:
                 if imgui.collapsing_header("Math Script", imgui.TREE_NODE_DEFAULT_OPEN):
                     imgui.text("z = f(x, y):")
                     imgui.push_item_width(-1)
+                    
+                    # Dùng biến tạm để người dùng gõ thoải mái
                     changed_func, new_func = imgui.input_text(f"##fxy_{target.id}", target.math_script, 256)
-                    if changed_func: actions['update_attr'] = {"obj": target, "attr": "math_script", "val": new_func}
+                    if changed_func: 
+                        target.math_script = new_func # Lưu tạm vào object
+                        
                     imgui.pop_item_width()
+                    
+                    imgui.spacing()
+                    if imgui.button(f"Apply##apply_math_{target.id}"):
+                        # GỬI MỘT ACTION RIÊNG BIỆT CHO CONTROLLER
+                        actions['apply_math'] = {"obj": target}
 
             # --- CAMERA SETTINGS ---
             elif target.type == Type.CAMERA:

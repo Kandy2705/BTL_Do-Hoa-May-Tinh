@@ -201,8 +201,23 @@ class AppController:
         # Thêm đoạn này vào để cập nhật tự động TẤT CẢ các loại thuộc tính (FOV, Color, Intensity...)
         if 'update_attr' in actions:
             data = actions['update_attr']
-            # Cú pháp setattr này cực mạnh: nó tự tìm tên biến (attr) trong object (obj) và gán giá trị mới (val)
             setattr(data['obj'], data['attr'], data['val'])
+            
+        # --- BẮT SỰ KIỆN NÚT APPLY MATH ---
+        if 'apply_math' in actions:
+            target_obj = actions['apply_math']['obj']
+            print(f"Applying new math function: {target_obj.math_script}")
+            
+            # Cần chuyển data sang dạng Dictionary để hàm _reload_hierarchy_object cũ của bạn hiểu được
+            # (Vì hàm đó của bạn đang viết: obj_id = hierarchy_obj["id"])
+            dict_format_obj = {
+                "id": target_obj.id,
+                "type": "math",
+                "name": target_obj.name
+            }
+            
+            # Gọi hàm tạo lại lưới 3D
+            self.model._reload_hierarchy_object(dict_format_obj, target_obj.math_script)
 
         if 'update_obj' in actions:
             data = actions['update_obj']
@@ -253,7 +268,19 @@ class AppController:
                 if result.returncode == 0 and result.stdout.strip():
                     filename = result.stdout.strip()
                     self.model.set_model_filename(filename)
-                    self.model.load_active_drawable()
+                    
+                    # If there's a selected hierarchy object of type custom_model, reload it
+                    if self.model.selected_hierarchy_idx >= 0:
+                        selected_obj = self.model.hierarchy_objects[self.model.selected_hierarchy_idx]
+                        if selected_obj["type"] == "custom_model":
+                            self.model._reload_hierarchy_object(selected_obj)
+                        else:
+                            # Fallback to loading active drawable
+                            self.model.load_active_drawable()
+                    else:
+                        # No hierarchy object selected, load active drawable
+                        self.model.load_active_drawable()
+                    
                     print(f"Đã chọn file model: {filename}")
                 else:
                     print("Đã hủy chọn file.")
