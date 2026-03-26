@@ -192,9 +192,9 @@ class Trackball:
         """ Zoom trackball by a factor delta normalized by windows size """
         self.distance = max(0.001, self.distance * (1 - 50*delta/size))
 
-    def pan(self, old, new):
-        """ Pan in camera's reference by a 2d vector factor of (new - old) """
-        self.pos2d += (vec(new) - old) * 0.001 * self.distance
+    def pan(self, dx, dy):
+        """ Pan in camera's reference by dx, dy """
+        self.pos2d += vec(dx, dy) * 0.001 * self.distance
 
     def view_matrix(self):
         """ View matrix transformation, including distance to target point """

@@ -84,27 +84,41 @@ class Viewer:
     # Các hàm callback giữ nguyên như code cũ của bạn...
     def _on_scroll(self, window, xoffset, yoffset):
         if self.scroll_callback: self.scroll_callback(window, xoffset, yoffset)
+
     def on_mouse_move(self, window, xpos, ypos):
-        if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
-            current_tool = getattr(self.model, 'active_tool', 'select')
-            selected_objects = getattr(self.model.scene, 'selected_objects', [])
+        # 1. CHUỘT PHẢI: Xoay Camera vòng vòng (Nhưng cũ)
+        if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS:
+            self.trackball.drag(self.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
             
-            if (selected_objects and len(selected_objects) == 1 and 
-                current_tool in ['move', 'rotate', 'scale']):
-                target = selected_objects[0]
-                mouse_pos = (xpos, ypos)
+        # 2. CHUỘT TRÁI: Tương tác với Gizmo hoặc Hand Tool
+        elif (glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS and 
+              glfw.get_key(window, glfw.KEY_LEFT_SHIFT) != glfw.PRESS):
+            
+            current_tool = getattr(self.model, 'active_tool', 'select')
+            
+            # --- NẾU LÀ HAND TOOL -> Di chuyển Camera (Pan) ---
+            if current_tool == 'hand':
+                dx = xpos - self.last_mouse_pos[0]
+                dy = ypos - self.last_mouse_pos[1]
                 
-                # --- LẤY MA TRẬN CAMERA & MÀN HÌNH ---
-                view = self.trackball.view_matrix()
-                proj = self.trackball.projection_matrix(glfw.get_window_size(window))
-                win_size = glfw.get_window_size(window)
-                
-                # Kéo Gizmo
-                self.gizmo.handle_mouse_drag(mouse_pos, target.position, current_tool, view, proj, win_size)
+                if hasattr(self.trackball, 'pan'):
+                    self.trackball.pan(dx, -dy)
+                    
+            # --- NẾU LÀ CÁC TOOL CÒN LẠI -> Xử lý kéo Gizmo ---
             else:
-                # Nếu không nắm Gizmo thì mới cho phép xoay Camera
-                self.trackball.drag(self.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
+                selected_objects = getattr(self.model.scene, 'selected_objects', [])
+                if (selected_objects and len(selected_objects) == 1 and 
+                    current_tool in ['move', 'rotate', 'scale']):
+                    target = selected_objects[0]
+                    mouse_pos = (xpos, ypos)
+                    
+                    view = self.trackball.view_matrix()
+                    proj = self.trackball.projection_matrix(glfw.get_window_size(window))
+                    win_size = glfw.get_window_size(window)
+                    
+                    self.gizmo.handle_mouse_drag(mouse_pos, target.position, current_tool, view, proj, win_size)
         
+        # Cập nhật vị trí chuột cuối cùng
         self.last_mouse_pos = (xpos, ypos)
     
     def on_mouse_button(self, window, button, action, mods):
