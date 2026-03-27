@@ -30,8 +30,54 @@ class AppController:
         self.view.trackball.zoom(yoffset, max(width, height))
 
     def on_mouse_move(self, window, xpos, ypos):
+        import imgui
+        if imgui.get_io().want_capture_mouse:
+            self.view.last_mouse_pos = (xpos, ypos)
+            return
+
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
-            self.view.trackball.drag(self.view.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
+            tool = self.model.active_tool
+            
+            # 1. Nếu chọn HAND (Bàn tay) -> Trượt Camera (Pan)
+            if tool == 'hand':
+                dx = xpos - self.view.last_mouse_pos[0]
+                dy = ypos - self.view.last_mouse_pos[1]
+                tb = self.view.trackball
+                
+                # Gọi đúng hàm pan của Trackball để trượt bằng chuột
+                if hasattr(tb, 'pan') and callable(tb.pan):
+                    tb.pan(dx, -dy)  # Chú ý -dy để kéo chuột thuận tay
+                elif hasattr(tb, 'target') and not callable(tb.target):
+                    tb.target[0] -= dx * 0.02
+                    tb.target[1] += dy * 0.02
+                    
+            # 2. Nếu chọn ROTATE (Xoay) -> Xoay góc Camera
+            elif tool == 'rotate' or tool == 'select':
+                self.view.trackball.drag(self.view.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
+                
+            # 3. Nếu chọn MOVE (Di chuyển) -> Dịch chuyển Camera 3 trục (X,Y,Z)
+            elif tool == 'move':
+                dx = xpos - self.view.last_mouse_pos[0]
+                dy = ypos - self.view.last_mouse_pos[1]
+                tb = self.view.trackball
+                
+                # X,Y: Dịch chuyển ngang (giống Hand)
+                if hasattr(tb, 'pan') and not callable(tb.pan):
+                    tb.pan[0] -= dx * 0.02
+                    tb.pan[1] += dy * 0.02
+                elif hasattr(tb, 'target') and not callable(tb.target):
+                    tb.target[0] -= dx * 0.02
+                    tb.target[1] += dy * 0.02
+                
+                # Z: Dịch chuyển sâu (zoom) - dùng dy để zoom in/out
+                if hasattr(tb, 'distance'):
+                    tb.distance += dy * 0.05  # Kéo lên = đi ra, kéo xuống = đi vào
+            
+            # 4. Scale tool sau này làm Gizmo
+            elif tool == 'scale':
+                pass 
+
+        self.view.last_mouse_pos = (xpos, ypos)
     
     def on_mouse_button(self, window, button, action, mods):
         """Handle mouse button events for gizmo interaction"""
@@ -79,6 +125,21 @@ class AppController:
                 if len(lights) > 2:
                     lights[2].visible = not lights[2].visible
                     print(f"Đèn 3: {'SÁNG' if lights[2].visible else 'TẮT'}")
+
+            # --- ĐỔI CAMERA TRONG SCENE BẰNG PHÍM C ---
+            elif key == glfw.KEY_C and action == glfw.PRESS:
+                cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]
+                
+                # Tổng số góc nhìn = 1 (Scene Camera) + Số lượng Game Camera đang có
+                total_views = len(cameras) + 1
+                
+                self.view.active_camera_idx = (self.view.active_camera_idx + 1) % total_views
+                
+                if self.view.active_camera_idx == 0:
+                    print("🎥 Đã chuyển về: Scene Camera (Góc nhìn tự do)")
+                else:
+                    active_cam = cameras[self.view.active_camera_idx - 1]
+                    print(f"🎥 Đã chuyển góc nhìn sang: {active_cam.name}")
 
     def _setup_coordinate_system(self):
         """Setup coordinate system with simple color shader"""
@@ -246,8 +307,24 @@ class AppController:
             
         # Thêm đoạn này vào để cập nhật tự động TẤT CẢ các loại thuộc tính (FOV, Color, Intensity...)
         if 'update_attr' in actions:
-            data = actions['update_attr']
-            setattr(data['obj'], data['attr'], data['val'])
+            obj = actions['update_attr']['obj']
+            attr = actions['update_attr']['attr']
+            val = actions['update_attr']['val']
+            
+            # --- [ĐỒNG BỘ 2] TỪ INSPECTOR NGƯỢC VỀ TRACKBALL ---
+            if hasattr(obj, 'camera_fov') and hasattr(obj, 'trackball'):
+                tb = obj.trackball
+                if attr == 'position':
+                    # TRUYỀN THẲNG SỐ VÀO BIẾN pos2d MÀ KHÔNG QUA HÀM PAN
+                    if hasattr(tb, 'pos2d'):
+                        tb.pos2d[0] = float(val[0])
+                        tb.pos2d[1] = float(val[1])
+                        
+                    if hasattr(tb, 'distance'): 
+                        tb.distance = float(val[2])
+
+            # Gán giá trị vào bảng Inspector
+            setattr(obj, attr, val)
             
         # --- BẮT SỰ KIỆN NÚT APPLY MATH ---
         if 'apply_math' in actions:
@@ -466,6 +543,30 @@ class AppController:
                 self.model.load_active_drawable()
             
             self._process_ui_actions(ui_actions)
+            
+            # --- [ĐỒNG BỘ 1] GIẢI QUYẾT XUNG ĐỘT GIỮA GIZMO VÀ TRACKBALL ---
+            cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]
+            active_cam_idx = self.view.active_camera_idx
+            
+            for i, cam in enumerate(cameras):
+                if not hasattr(cam, 'trackball'): continue
+                tb = cam.trackball
+                
+                # Trạng thái 1: Camera đang ĐƯỢC NHÌN (Lấy Trackball đè ra Inspector)
+                if (i + 1) == active_cam_idx:
+                    if hasattr(tb, 'pos2d'):
+                        cam.position[0] = float(tb.pos2d[0])
+                        cam.position[1] = float(tb.pos2d[1])
+                    if hasattr(tb, 'distance'):
+                        cam.position[2] = float(tb.distance)
+                
+                # Trạng thái 2: Camera đang TẮT (Lấy vị trí Gizmo/Inspector nạp vào Trackball)
+                else:
+                    if hasattr(tb, 'pos2d'):
+                        tb.pos2d[0] = float(cam.position[0])
+                        tb.pos2d[1] = float(cam.position[1])
+                    if hasattr(tb, 'distance'):
+                        tb.distance = float(cam.position[2])
             
             view = self.view.trackball.view_matrix()
             projection = self.view.trackball.projection_matrix(glfw.get_window_size(self.view.win))
