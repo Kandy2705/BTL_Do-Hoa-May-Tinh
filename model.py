@@ -354,6 +354,10 @@ class AppModel:
         elif obj_type == "camera":
             new_obj = GameObjectCamera(name)
             new_obj.drawable = None
+            
+            # --- THÊM 2 DÒNG NÀY: Cấp Trackball (Não) riêng cho từng Camera ---
+            from libs.transform import Trackball
+            new_obj.trackball = Trackball()
         else:
             new_obj = GameObject(name)
             new_obj.drawable = None

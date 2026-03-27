@@ -27,7 +27,9 @@ class Viewer:
 
         imgui.create_context()
         self.imgui_impl = GlfwRenderer(self.win)
-        self.trackball = Trackball()
+        # --- SỬA THÀNH: Camera dự phòng khi Scene chưa có Camera nào ---
+        self.default_trackball = Trackball()
+        self.active_camera_idx = 0
         
         # Store model reference for gizmo interaction
         self.model = None
@@ -58,6 +60,25 @@ class Viewer:
     def set_model_reference(self, model):
         """Set reference to AppModel for gizmo interaction"""
         self.model = model
+
+    @property
+    def trackball(self):
+        """0 là Scene Camera (Tự do), >0 là các Game Camera trong cảnh"""
+        if not self.model: 
+            return self.default_trackball
+            
+        cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]
+        
+        # Nếu đang ở chế độ 0, HOẶC lỡ xóa mất camera làm index bị lố -> Trả về Scene Camera
+        if self.active_camera_idx == 0 or self.active_camera_idx > len(cameras):
+            return self.default_trackball
+            
+        # Nếu đang ở chế độ > 0, trỏ góc nhìn vào Game Camera tương ứng
+        target_cam = cameras[self.active_camera_idx - 1]
+        if hasattr(target_cam, 'trackball'):
+            return target_cam.trackball
+            
+        return self.default_trackball
 
     def _apply_unity_style(self):
         style = imgui.get_style()

@@ -56,12 +56,18 @@ class Trapezoid(BaseShape):
 
     def _generate_trapezoid(self):
         vertices = np.array([
-            [0.5, 1, 0],
-            [1, 0, 0],
-            [-0.5, 1, 0],
-            [-1, 0, 0],
+            [0.5, 1, 0],  # Đỉnh trên bên phải
+            [1, 0, 0],    # Đỉnh dưới bên phải
+            [-0.5, 1, 0], # Đỉnh trên bên trái
+            [-1, 0, 0],    # Đỉnh dưới bên trái
         ], dtype=np.float32)
-
+        
+        # Indices để vẽ 2 tam giác bao lại hình thang
+        self.indices = np.array([
+            0, 1, 2,  # Tam giác phải
+            2, 1, 3   # Tam giác trái
+        ], dtype=np.uint32)
+        
         return vertices
 
     def setup(self):
