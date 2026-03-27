@@ -365,18 +365,22 @@ class ModelLoader(BaseShape):
         loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
         if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
         
-        # ---> FIX LỖI "TẮT ĐÈN": CHÍNH THỨC TREO ĐÈN LÊN CAO <---
-        loc_light = GL.glGetUniformLocation(self.shader.render_idx, "light_pos")
-        if loc_light != -1: 
-            GL.glUniform3f(loc_light, 5.0, 5.0, 5.0)
-            
+        # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
+        lights = getattr(self, 'scene_lights', [])
+        loc_num_lights = GL.glGetUniformLocation(self.shader.render_idx, "u_num_lights")
+        if loc_num_lights != -1: GL.glUniform1i(loc_num_lights, len(lights))
+        
+        for i, l in enumerate(lights[:4]): # Hỗ trợ tối đa 4 nguồn sáng cùng lúc
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_pos[{i}]"), *l.position)
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_color[{i}]"), *l.light_color)
+            GL.glUniform1f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_intensity[{i}]"), l.light_intensity)
+            GL.glUniform1i(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_active[{i}]"), 1 if l.visible else 0)
+        
         if self.use_texture and self.texture_id is not None:
             GL.glActiveTexture(GL.GL_TEXTURE0)
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
             loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
             if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
-            
-        # (Đã xóa dòng self.lighting.setup_phong để chống phá bĩnh)
         
         self.vao.activate()
         # Tự động nhận diện vẽ theo Indices hoặc Arrays

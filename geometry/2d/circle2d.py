@@ -121,8 +121,16 @@ class Circle(BaseShape):
             loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
             if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
             
-        if self.render_mode > 0:
-            self.lighting.setup_phong(mode=1)
+        # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
+        lights = getattr(self, 'scene_lights', [])
+        loc_num_lights = GL.glGetUniformLocation(self.shader.render_idx, "u_num_lights")
+        if loc_num_lights != -1: GL.glUniform1i(loc_num_lights, len(lights))
+        
+        for i, l in enumerate(lights[:4]): # Hỗ trợ tối đa 4 nguồn sáng cùng lúc
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_pos[{i}]"), *l.position)
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_color[{i}]"), *l.light_color)
+            GL.glUniform1f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_intensity[{i}]"), l.light_intensity)
+            GL.glUniform1i(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_active[{i}]"), 1 if l.visible else 0)
 
         self.vao.activate()
         GL.glDrawArrays(GL.GL_TRIANGLE_FAN, 0, self.vertices.shape[0])

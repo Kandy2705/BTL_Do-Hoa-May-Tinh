@@ -104,6 +104,8 @@ class InspectorPanel:
                     if target.texture_filename:
                         if imgui.button(f"Clear##texture_clear_{target.id}"):
                             actions['update_attr'] = {"obj": target, "attr": "texture_filename", "val": ""}
+                            if hasattr(target, 'drawable') and target.drawable:
+                                target.drawable.set_texture("")
                         imgui.same_line()
                         imgui.text(target.texture_filename)
                     imgui.next_column()

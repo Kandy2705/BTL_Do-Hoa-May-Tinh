@@ -183,6 +183,8 @@ class Viewer:
     def draw_drawables(self, drawables, scene_objects, active_tool="select", selected_objects=None):
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
+
+        scene_lights = [obj for obj in scene_objects if hasattr(obj, 'light_intensity')]
         
         # Draw regular drawables (mesh objects)
         for drawable in drawables:
@@ -197,6 +199,7 @@ class Viewer:
                     obj.drawable.set_transform(obj.position, obj.rotation, obj.scale)
                 # if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
                 #     obj.drawable.set_color(obj.color[:3])
+                obj.drawable.scene_lights = scene_lights
                 obj.drawable.draw(projection, view, None)
 
         if selected_objects and len(selected_objects) == 1:

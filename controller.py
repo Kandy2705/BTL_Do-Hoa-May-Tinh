@@ -63,6 +63,23 @@ class AppController:
                 if hasattr(self.view.trackball, 'pan'):
                     self.view.trackball.pan(-20, 0)  # Phải
 
+            # --- THÊM PHÍM TẮT ĐIỀU KHIỂN ĐÈN ---
+            elif key == glfw.KEY_1 and action == glfw.PRESS:
+                lights = [obj for obj in self.model.scene.objects if hasattr(obj, 'light_intensity')]
+                if len(lights) > 0:
+                    lights[0].visible = not lights[0].visible
+                    print(f"Đèn 1: {'SÁNG' if lights[0].visible else 'TẮT'}")
+            elif key == glfw.KEY_2 and action == glfw.PRESS:
+                lights = [obj for obj in self.model.scene.objects if hasattr(obj, 'light_intensity')]
+                if len(lights) > 1:
+                    lights[1].visible = not lights[1].visible
+                    print(f"Đèn 2: {'SÁNG' if lights[1].visible else 'TẮT'}")
+            elif key == glfw.KEY_3 and action == glfw.PRESS:
+                lights = [obj for obj in self.model.scene.objects if hasattr(obj, 'light_intensity')]
+                if len(lights) > 2:
+                    lights[2].visible = not lights[2].visible
+                    print(f"Đèn 3: {'SÁNG' if lights[2].visible else 'TẮT'}")
+
     def _setup_coordinate_system(self):
         """Setup coordinate system with simple color shader"""
         vert_shader = "./shaders/color_interp.vert"
