@@ -120,10 +120,7 @@ class ModelLoader(BaseShape):
         
         self.indices = np.array(indices, dtype=np.int32)
         
-        if normals:
-            self.normals = np.array(normals, dtype=np.float32)
-        else:
-            self._generate_normals()
+        self._generate_normals()
         
         if len(colors) == len(vertices):
             self.colors = np.array(colors, dtype=np.float32)

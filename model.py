@@ -39,6 +39,9 @@ class AppModel:
 
         self.active_tool = 'select'
         
+        # --- THÊM DÒNG NÀY: Công tắc chuyển đổi RGB / Depth Map ---
+        self.display_mode = 0  # 0: RGB tiêu chuẩn, 1: Depth Map
+        
         # Initialize Scene
         self.scene = Scene()
         
