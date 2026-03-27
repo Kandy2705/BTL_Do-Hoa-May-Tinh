@@ -355,9 +355,13 @@ class AppModel:
             new_obj = GameObjectCamera(name)
             new_obj.drawable = None
             
-            # --- THÊM 2 DÒNG NÀY: Cấp Trackball (Não) riêng cho từng Camera ---
             from libs.transform import Trackball
             new_obj.trackball = Trackball()
+            
+            # --- THÊM 3 DÒNG NÀY ĐỂ NẠP GIÁ TRỊ GỐC CHO CAMERA ---
+            new_obj.trackball.fov = new_obj.camera_fov
+            new_obj.trackball.near = new_obj.camera_near
+            new_obj.trackball.far = new_obj.camera_far
         else:
             new_obj = GameObject(name)
             new_obj.drawable = None
