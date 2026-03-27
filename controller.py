@@ -322,6 +322,14 @@ class AppController:
                         
                     if hasattr(tb, 'distance'): 
                         tb.distance = float(val[2])
+                elif attr == 'rotation':
+                    if hasattr(tb, 'rot_x'): tb.rot_x = val[0]
+                    if hasattr(tb, 'rot_y'): tb.rot_y = val[1]
+                    
+                # ---> THÊM 3 DÒNG NÀY VÀO ĐÂY <---
+                elif attr == 'camera_fov': tb.fov = float(val)
+                elif attr == 'camera_near': tb.near = float(val)
+                elif attr == 'camera_far': tb.far = float(val)
 
             # Gán giá trị vào bảng Inspector
             setattr(obj, attr, val)

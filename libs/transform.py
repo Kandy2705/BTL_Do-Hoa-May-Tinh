@@ -201,9 +201,13 @@ class Trackball:
         return translate(*self.pos2d, -self.distance) @ self.matrix()
 
     def projection_matrix(self, winsize):
-        """ Projection matrix with z-clipping range adaptive to distance """
-        z_range = vec(0.1, 100) * self.distance  # proportion to dist
-        return perspective(35, winsize[0] / winsize[1], *z_range)
+        """ Dùng FOV, Near, Far có thể tùy chỉnh thay vì Fix cứng """
+        # Lấy giá trị nếu có, nếu không thì dùng mặc định của Unity (60, 0.1, 1000)
+        fov = getattr(self, 'fov', 60.0)
+        near = getattr(self, 'near', 0.1)
+        far = getattr(self, 'far', 1000.0)
+        
+        return perspective(fov, winsize[0] / winsize[1], near, far)
 
     def matrix(self):
         """ Rotational component of trackball position """
