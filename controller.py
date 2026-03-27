@@ -372,7 +372,13 @@ class AppController:
                         # --- SỬA Ở ĐÂY: Ép toàn bộ thành MÀU TRẮNG thay vì lấy màu của object ---
                         obj.drawable.set_solid_color([1.0, 1.0, 1.0]) 
             
-            status = "BẬT" if new_state else "TẮT"
+        # --- CHUYỂN ĐỔI CHẾ ĐỘ RGB / DEPTH MAP ---
+        if 'toggle_display_mode' in actions:
+            current_mode = getattr(self.model, 'display_mode', 0)
+            self.model.display_mode = 1 if current_mode == 0 else 0
+            print(f"Đã chuyển chế độ hiển thị sang: {'Depth Map' if self.model.display_mode == 1 else 'RGB'}") 
+            
+            status = "BẬT" if self.model.display_mode == 1 else "TẮT"
             print(f"Đã {status} chế độ Flat Color (Trắng) cho toàn bản đồ!")
 
     def _browse_texture_file(self):

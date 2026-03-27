@@ -221,6 +221,20 @@ class Viewer:
                 # if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
                 #     obj.drawable.set_color(obj.color[:3])
                 obj.drawable.scene_lights = scene_lights
+                
+                # ---> BƠM UNIFORM DEPTH MAP TOÀN CỤC CHO MỌI VẬT THỂ <---
+                display_mode = getattr(self.model, 'display_mode', 0)
+                cam_far = getattr(self.trackball, 'far', 100.0)
+                
+                if hasattr(obj.drawable, 'shader'):
+                    gl.glUseProgram(obj.drawable.shader.render_idx)
+                    loc_mode = gl.glGetUniformLocation(obj.drawable.shader.render_idx, "u_display_mode")
+                    if loc_mode != -1: gl.glUniform1i(loc_mode, display_mode)
+                    
+                    loc_far = gl.glGetUniformLocation(obj.drawable.shader.render_idx, "u_cam_far")
+                    if loc_far != -1: gl.glUniform1f(loc_far, cam_far)
+                # --------------------------------------------------------
+                
                 obj.drawable.draw(projection, view, None)
 
         if selected_objects and len(selected_objects) == 1:
@@ -267,6 +281,12 @@ class Viewer:
         imgui.same_line()
         if imgui.button(" Flat Color", 85, 22):
             actions['toggle_global_flat_color'] = True
+            
+        # --- THÊM NÚT NÀY VÀO ĐÂY ---
+        imgui.same_line()
+        mode_text = "View: RGB" if getattr(model, 'display_mode', 0) == 0 else "View: Depth Map"
+        if imgui.button(mode_text, 115, 22):
+            actions['toggle_display_mode'] = True
             
         imgui.end()
         imgui.pop_style_color()
