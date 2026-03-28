@@ -44,11 +44,11 @@ class AppModel:
         # === SGD Visualization State ===
         self.sgd_visualizer = None
         self.sgd_loss_function = "Himmelblau"
-        self.sgd_learning_rate = 0.01
-        self.sgd_momentum = 0.85
-        self.sgd_batch_size = 32
+        self.sgd_learning_rate = 0.001
+        self.sgd_momentum = 0.01
+        self.sgd_batch_size = 1
         self.sgd_max_iterations = 10000
-        self.sgd_simulation_speed = 50
+        self.sgd_simulation_speed = 1
         self.sgd_show_trajectory = True
         self.sgd_wireframe_mode = 0  # 0: fill, 1: wireframe, 2: point
         self.sgd_optimizers_enabled = {

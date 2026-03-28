@@ -287,12 +287,12 @@ class SGDVisualizer:
             dx, dy, dz = self.get_draw_coords(pos[0], pos[1])
             
             color = self.optimizer_colors.get(opt['type'], [1, 0, 1])
-            self._draw_sphere(dx, dy, dz, color, projection, view)
+            self._draw_sphere(dx, dy, dz, color, projection, view, wireframe_mode)
             
             if len(opt['history']) >= 2:
                 self._draw_trail(opt['history'], opt['type'], projection, view)
     
-    def _draw_sphere(self, x, y, z, color, projection, view):
+    def _draw_sphere(self, x, y, z, color, projection, view, wireframe_mode=0):
         lat_div, long_div = 12, 12
         radius = 0.05
         
@@ -336,10 +336,16 @@ class SGDVisualizer:
         self.marker_uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.marker_uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        self.marker_lighting.setup_phong(mode=1)
+        if wireframe_mode == 1:
+            GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
+        elif wireframe_mode == 2:
+            GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_POINT)
+        else:
+            self.marker_lighting.setup_phong(mode=1)
         
         sphere_vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(indices), GL.GL_UNSIGNED_INT, None)
+        GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
     
     def _draw_trail(self, history, opt_type, projection, view):
         if len(history) < 2:
