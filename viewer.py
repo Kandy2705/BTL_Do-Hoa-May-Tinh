@@ -207,9 +207,14 @@ class Viewer:
 
         scene_lights = [obj for obj in scene_objects if hasattr(obj, 'light_intensity')]
         
-        # Draw regular drawables (mesh objects)
-        for drawable in drawables:
-            drawable.draw(projection, view, None)
+        # Draw SGD visualization if in SGD category
+        if self.model and self.model.selected_category == 4 and self.model.sgd_visualizer:
+            wireframe_mode = getattr(self.model, 'sgd_wireframe_mode', 0)
+            self.model.sgd_visualizer.draw(projection, view, wireframe_mode)
+        else:
+            # Draw regular drawables (mesh objects)
+            for drawable in drawables:
+                drawable.draw(projection, view, None)
         
         for obj in scene_objects:
             if not getattr(obj, 'visible', True):
@@ -337,5 +342,11 @@ class Viewer:
         if imgui.button("Import Model"): actions['browse_model_file'] = True
         imgui.text(f"Active: {model.model_filename}")
         imgui.end()
+        
+        # 7. SGD OPTIMIZER PANEL (PHẦN 2)
+        if model.selected_category == 4:
+            from components.sgd_panel import SGDPanel
+            sgd_actions = SGDPanel.draw(model)
+            actions.update(sgd_actions)
         
         return actions

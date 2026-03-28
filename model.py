@@ -15,12 +15,14 @@ def _default_shader_paths() -> ShaderPaths:
     return ("./shaders/standard.vert", "./shaders/standard.frag")
 
 
+from libs.transform import Trackball
+from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
 
     def __init__(self) -> None:
         from components.scene import Scene
         self.selected_idx: int = -1  # -1 means no shape selected
-        self.selected_category: int = 1  # 1: 3D (default to 3D instead of 2D)
+        self.selected_category: int = 5  # 5: Normal mode (default)
         self.selected_shader: int = 0
 
         self.active_drawable: Optional[Any] = None
@@ -38,6 +40,36 @@ class AppModel:
         self.object_color: Tuple[float, float, float] = (1.0, 1.0, 1.0)  # Default white color
 
         self.active_tool = 'select'
+        
+        # === SGD Visualization State ===
+        self.sgd_visualizer = None
+        self.sgd_loss_function = "Himmelblau"
+        self.sgd_learning_rate = 0.01
+        self.sgd_momentum = 0.85
+        self.sgd_batch_size = 32
+        self.sgd_max_iterations = 10000
+        self.sgd_simulation_speed = 50
+        self.sgd_show_trajectory = True
+        self.sgd_wireframe_mode = 0  # 0: fill, 1: wireframe, 2: point
+        self.sgd_optimizers_enabled = {
+            'GD': True,
+            'SGD': True,
+            'MiniBatch': True,
+            'Momentum': True,
+            'Nesterov': True,
+            'Adam': True,
+        }
+        # Himmelblau minima at (3,2), (-2.8,3.1), (-3.8,-3.3), (3.6,-1.8)
+        self.sgd_initial_positions = {
+            'GD': [2.5, 2.5],        # Đỏ
+            'SGD': [-3.5, 2.5],      # Xanh lá
+            'MiniBatch': [2.5, -2.5], # Xanh dương
+            'Momentum': [-3.5, -3.5], # Vàng
+            'Nesterov': [4.0, 0.0],  # Cam
+            'Adam': [0.0, 4.0],      # Hồng
+        }
+        self.sgd_simulation_running = False
+        self.sgd_step_count = 0
         
         # --- THÊM DÒNG NÀY: Công tắc chuyển đổi RGB / Depth Map ---
         self.display_mode = 0  # 0: RGB tiêu chuẩn, 1: Depth Map
@@ -90,7 +122,7 @@ class AppModel:
                 "Model from .obj/.ply file",
             ]
         else:
-            return ["Part 2: SGD (Himmelblau)"]
+            return ["SGD Visualization"]
 
     @property
     def shader_names(self) -> List[str]:
@@ -98,7 +130,7 @@ class AppModel:
 
     @property
     def category_options(self) -> List[str]:
-        return ["2D Shapes", "3D Shapes", "Mathematical Surface", "Model from file", "SGD"]
+        return ["Normal", "2D Shapes", "3D Shapes", "Mathematical Surface", "Model from file", "SGD"]
 
     def _shape_factories(self) -> List[Tuple[str, str]]:
         if self.selected_category == 0:  # 2D
@@ -628,3 +660,90 @@ class AppModel:
                     print(f"[AppModel] Failed to create drawable for {obj['name']}: {e}")
                     
         return hierarchy_drawables
+
+    # === SGD Visualization Methods ===
+    
+    def init_sgd_visualizer(self):
+        """Initialize the SGD visualizer with the current loss function"""
+        from geometry.sgd_visualizer import SGDVisualizer
+        from libs.loss_functions import LOSS_FUNCTIONS
+        
+        loss_func = LOSS_FUNCTIONS.get(self.sgd_loss_function)
+        if loss_func is None:
+            loss_func = LOSS_FUNCTIONS["Himmelblau"]
+        
+        x_range = loss_func.domain_range
+        y_range = loss_func.domain_range
+        
+        self.sgd_visualizer = SGDVisualizer(loss_func, x_range=x_range, y_range=y_range, resolution=80)
+        
+        for opt_name, opt_type in [('GD', 'GD'), ('SGD', 'SGD'), ('MiniBatch', 'MiniBatch'), 
+                                    ('Momentum', 'Momentum'), ('Nesterov', 'Nesterov'), ('Adam', 'Adam')]:
+            if self.sgd_optimizers_enabled.get(opt_name, True):
+                initial_pos = self.sgd_initial_positions.get(opt_name)
+                self.sgd_visualizer.add_optimizer(opt_name, opt_type, initial_pos)
+        
+        self.sgd_visualizer.setup()
+        self.sgd_simulation_running = False
+        self.sgd_step_count = 0
+    
+    def set_sgd_loss_function(self, loss_name):
+        """Change the loss function and reinitialize optimizers"""
+        if loss_name in LOSS_FUNCTIONS:
+            self.sgd_loss_function = loss_name
+            self.init_sgd_visualizer()
+    
+    def sgd_step(self):
+        """Perform one optimization step for all enabled optimizers"""
+        if self.sgd_visualizer is None:
+            return
+        
+        for opt_name in ['GD', 'SGD', 'MiniBatch', 'Momentum', 'Nesterov', 'Adam']:
+            if self.sgd_optimizers_enabled.get(opt_name, True) and opt_name in self.sgd_visualizer.optimizers:
+                self.sgd_visualizer.step_optimizer(opt_name, self.sgd_learning_rate, self.sgd_momentum, self.sgd_batch_size)
+                self.sgd_visualizer.update_trajectory(opt_name)
+        
+        self.sgd_step_count += 1
+    
+    def reset_sgd(self):
+        """Reset all optimizers to initial positions"""
+        if self.sgd_visualizer is None:
+            return
+        
+        for opt_name in self.sgd_visualizer.optimizers:
+            initial_pos = self.sgd_initial_positions.get(opt_name)
+            self.sgd_visualizer.reset_optimizer(opt_name, initial_pos)
+        
+        self.sgd_simulation_running = False
+        self.sgd_step_count = 0
+    
+    def get_sgd_stats(self):
+        """Get current optimization statistics for all optimizers"""
+        if self.sgd_visualizer is None:
+            return {}
+        
+        stats = {}
+        for opt_name, opt_data in self.sgd_visualizer.optimizers.items():
+            stats[opt_name] = {
+                'position': opt_data['position'].tolist(),
+                'loss': float(opt_data['loss']),
+                'gradient_mag': float(opt_data['gradient_mag']),
+                'step': opt_data['step'],
+            }
+        return stats
+    
+    def toggle_optimizer_enabled(self, opt_name):
+        """Toggle an optimizer on/off"""
+        if opt_name in self.sgd_optimizers_enabled:
+            self.sgd_optimizers_enabled[opt_name] = not self.sgd_optimizers_enabled[opt_name]
+            
+            if self.sgd_visualizer:
+                if self.sgd_optimizers_enabled[opt_name]:
+                    opt_type = opt_name
+                    if opt_name == 'MiniBatch':
+                        opt_type = 'MiniBatch'
+                    initial_pos = self.sgd_initial_positions.get(opt_name)
+                    self.sgd_visualizer.add_optimizer(opt_name, opt_type, initial_pos)
+                else:
+                    if opt_name in self.sgd_visualizer.optimizers:
+                        del self.sgd_visualizer.optimizers[opt_name]

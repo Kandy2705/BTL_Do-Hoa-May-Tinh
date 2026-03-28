@@ -18,6 +18,12 @@ class MainMenu:
                 imgui.end_menu()
 
             if imgui.begin_menu("BTL 1"):
+                if imgui.menu_item("Normal Mode")[0]:
+                    actions['category_changed'] = 5
+                    actions['shape_changed'] = -1
+                
+                imgui.separator()
+                
                 if imgui.begin_menu("2D Shapes"):
                     original_cat = model.selected_category
                     model.selected_category = 0 

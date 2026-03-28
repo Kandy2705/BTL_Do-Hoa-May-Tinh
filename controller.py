@@ -17,7 +17,7 @@ class AppController:
         # Set model reference in viewer for gizmo interaction
         self.view.set_model_reference(self.model)
         
-        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
+        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=True)
         self._setup_coordinate_system()
 
         self.view.scroll_callback = self.on_scroll
@@ -88,7 +88,10 @@ class AppController:
         # Dùng PRESS (nhấn) và REPEAT (giữ phím) để camera trượt mượt mà
         if action == glfw.PRESS or action == glfw.REPEAT:
             if key == glfw.KEY_W:
-                self.view.cycle_polygon_mode()
+                if self.model.selected_category == 4:
+                    self.model.sgd_wireframe_mode = (self.model.sgd_wireframe_mode + 1) % 3
+                else:
+                    self.view.cycle_polygon_mode()
             elif key == glfw.KEY_Q:
                 glfw.set_window_should_close(window, True)
             elif key == glfw.KEY_S:
@@ -141,6 +144,23 @@ class AppController:
                     active_cam = cameras[self.view.active_camera_idx - 1]
                     print(f"🎥 Đã chuyển góc nhìn sang: {active_cam.name}")
 
+            # --- PHÍM TẮT ĐIỀU KHIỂN SGD ---
+            elif key == glfw.KEY_SPACE and action == glfw.PRESS:
+                if self.model.selected_category == 4:
+                    self.model.sgd_simulation_running = not self.model.sgd_simulation_running
+                    status = "Running" if self.model.sgd_simulation_running else "Paused"
+                    print(f"SGD Simulation: {status}")
+            
+            elif key == glfw.KEY_R and action == glfw.PRESS:
+                if self.model.selected_category == 4:
+                    self.model.reset_sgd()
+                    print("SGD Reset!")
+            
+            elif key == glfw.KEY_T and action == glfw.PRESS:
+                if self.model.selected_category == 4:
+                    self.model.sgd_show_trajectory = not self.model.sgd_show_trajectory
+                    print(f"Trajectory: {'On' if self.model.sgd_show_trajectory else 'Off'}")
+
     def _setup_coordinate_system(self):
         """Setup coordinate system with simple color shader"""
         vert_shader = "./shaders/color_interp.vert"
@@ -155,13 +175,16 @@ class AppController:
     def _process_ui_actions(self, actions):
         """Process UI actions and update model accordingly"""
         if 'category_changed' in actions:
-            # old_category = self.model.selected_category
-            self.model.set_category(actions['category_changed'])
-            if self.model.selected_category == 0 or self.model.selected_category == 2:
-                self.coord_system.set_mode(is_3d=False)
-            else:
-                self.coord_system.set_mode(is_3d=True)
-            # Reset hierarchy selection when category changes
+            new_cat = actions['category_changed']
+            self.model.set_category(new_cat)
+            
+            # Set coordinate system mode - all use XY plane
+            self.coord_system.set_mode(is_3d=False)
+            
+            # Initialize SGD visualizer when switching to category 4
+            if new_cat == 4 and self.model.sgd_visualizer is None:
+                self.model.init_sgd_visualizer()
+
             self.model.select_hierarchy_object(-1)
         
         if 'shape_changed' in actions:
@@ -380,6 +403,8 @@ class AppController:
             
             status = "BẬT" if self.model.display_mode == 1 else "TẮT"
             print(f"Đã {status} chế độ Flat Color (Trắng) cho toàn bản đồ!")
+            
+        # SGD actions are now handled by SGDPanel and model methods
 
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
@@ -548,6 +573,14 @@ class AppController:
             
             if 'category_changed' in ui_actions:
                 self.model.set_category(ui_actions['category_changed'])
+                # Initialize SGD visualizer when switching to category 4
+                if self.model.selected_category == 4 and self.model.sgd_visualizer is None:
+                    self.model.init_sgd_visualizer()
+                if self.model.selected_category == 4:
+                    self.coord_system.set_mode(is_3d=True)  # XY grid for SGD
+                elif self.model.selected_category == 0 or self.model.selected_category == 2:
+                    self.coord_system.set_mode(is_3d=True)
+
             
             if 'shape_changed' in ui_actions:
                 self.model.set_selected(ui_actions['shape_changed'])
@@ -557,6 +590,18 @@ class AppController:
                 self.model.load_active_drawable()
             
             self._process_ui_actions(ui_actions)
+            
+            # === SGD Position Change ===
+            if 'sgd_pos_changed' in ui_actions and self.model.selected_category == 4:
+                if self.model.sgd_visualizer:
+                    self.model.reset_sgd()
+            
+            # === SGD Simulation Step ===
+            if self.model.selected_category == 4:
+                if self.model.sgd_simulation_running:
+                    for _ in range(self.model.sgd_simulation_speed):
+                        if self.model.sgd_step_count < self.model.sgd_max_iterations:
+                            self.model.sgd_step()
             
             # --- [ĐỒNG BỘ 1] GIẢI QUYẾT XUNG ĐỘT GIỮA GIZMO VÀ TRACKBALL ---
             cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]
@@ -585,6 +630,7 @@ class AppController:
             view = self.view.trackball.view_matrix()
             projection = self.view.trackball.projection_matrix(glfw.get_window_size(self.view.win))
             
+            # Draw coordinate system (including grid)
             GL.glUseProgram(self.coord_shader.render_idx)
             self.view.draw_coordinate_system(self.coord_system, projection, view)
             
