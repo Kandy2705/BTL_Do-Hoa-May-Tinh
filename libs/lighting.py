@@ -98,7 +98,8 @@ class LightingManager:
     def setup_phong(self, 
                     light: Optional[Light] = None,
                     material: Optional[Material] = None,
-                    mode: int = 1):
+                    mode: int = 1,
+                    view_matrix: Optional[np.ndarray] = None):
         """
         Setup Phong lighting uniforms.
         
@@ -106,6 +107,7 @@ class LightingManager:
             light: Light source (uses default if None)
             material: Material properties (uses default if None)
             mode: Rendering mode (default: 1)
+            view_matrix: View matrix for transforming light to view space
         """
         light = light or self.DEFAULT_LIGHT
         material = material or self.DEFAULT_MATERIAL
@@ -126,10 +128,14 @@ class LightingManager:
         
         # Upload uniforms
         self.uma.upload_uniform_matrix3fv(I_light, 'I_light', False)
-        self.uma.upload_uniform_vector3fv(light.position, 'light_pos')
+        self.uma.upload_uniform_vector3fv(light.position, 'light_pos_world')
         self.uma.upload_uniform_matrix3fv(K_materials, 'K_materials', False)
         self.uma.upload_uniform_scalar1f(material.shininess, 'shininess')
         self.uma.upload_uniform_scalar1i(mode, 'mode')
+        
+        # Upload view matrix for light transform
+        if view_matrix is not None:
+            self.uma.upload_uniform_matrix4fv(view_matrix, 'view', True)
     
     def setup_phong_multi_material(self,
                                     light: Optional[Light] = None,
@@ -188,7 +194,8 @@ class LightingManager:
     def setup_gouraud(self,
                      light: Optional[Light] = None,
                      material: Optional[Material] = None,
-                     shininess: float = 100.0):
+                     shininess: float = 100.0,
+                     view_matrix: Optional[np.ndarray] = None):
         """
         Setup Gouraud lighting uniforms (for vertex shader).
         
@@ -199,6 +206,7 @@ class LightingManager:
             light: Light source (uses default if None)
             material: Material properties (uses default if None)
             shininess: Shininess exponent for specular highlights
+            view_matrix: View matrix for transforming light to view space
         """
         light = light or self.DEFAULT_LIGHT
         material = material or self.DEFAULT_MATERIAL
@@ -219,6 +227,10 @@ class LightingManager:
         
         # Upload uniforms (these will be used in vertex shader)
         self.uma.upload_uniform_matrix3fv(I_light, 'I_light', False)
-        self.uma.upload_uniform_vector3fv(light.position, 'light_pos')
+        self.uma.upload_uniform_vector3fv(light.position, 'light_pos_world')
         self.uma.upload_uniform_matrix3fv(K_materials, 'K_materials', False)
         self.uma.upload_uniform_scalar1f(shininess, 'shininess')
+        
+        # Upload view matrix for light transform
+        if view_matrix is not None:
+            self.uma.upload_uniform_matrix4fv(view_matrix, 'view', True)

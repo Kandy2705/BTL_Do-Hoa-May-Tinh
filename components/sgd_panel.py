@@ -17,8 +17,12 @@ class SGDPanel:
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         
+        # Ensure minimum window size
+        win_w = max(win_w, 800)
+        win_h = max(win_h, 600)
+        
         imgui.set_next_window_position(win_w - 320, 20)
-        imgui.set_next_window_size(320, win_h - 20)
+        imgui.set_next_window_size(320, max(win_h - 20, 100))
         imgui.begin("SGD Optimizer", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
         if imgui.collapsing_header("Loss Function", imgui.TREE_NODE_DEFAULT_OPEN):

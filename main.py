@@ -1,5 +1,6 @@
 import sys
 import os
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -13,6 +14,7 @@ def main():
         print("\nỨng dụng bị ngắt bởi người dùng")
     except Exception as e:
         print(f"Lỗi: {e}")
+        traceback.print_exc()
     finally:
         print("Ứng dụng đã đóng")
 

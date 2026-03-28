@@ -270,7 +270,7 @@ class SGDVisualizer:
         self.surface_uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.surface_uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        self.surface_lighting.setup_phong(mode=1)
+        self.surface_lighting.setup_phong(mode=1, view_matrix=view)
         
         if wireframe_mode == 1:
             GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
@@ -341,7 +341,7 @@ class SGDVisualizer:
         elif wireframe_mode == 2:
             GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_POINT)
         else:
-            self.marker_lighting.setup_phong(mode=1)
+            self.marker_lighting.setup_phong(mode=1, view_matrix=view)
         
         sphere_vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(indices), GL.GL_UNSIGNED_INT, None)

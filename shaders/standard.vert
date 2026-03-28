@@ -5,12 +5,13 @@ layout(location = 2) in vec3 normal;
 layout(location = 3) in vec2 texcoord;
 
 uniform mat4 projection, modelview;
+uniform mat4 view;  // View matrix cho việc transform light
 uniform int u_render_mode;
 
 // --- HỆ THỐNG NHIỀU ĐÈN (TỐI ĐA 4 ĐÈN) ---
 #define MAX_LIGHTS 4
 uniform int u_num_lights;
-uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_pos[MAX_LIGHTS];  // World space
 uniform vec3 u_light_color[MAX_LIGHTS];
 uniform float u_light_intensity[MAX_LIGHTS];
 uniform bool u_light_active[MAX_LIGHTS];
@@ -48,9 +49,11 @@ void main() {
 
         for(int i=0; i<MAX_LIGHTS; i++) {
             if (i >= u_num_lights) break;
-            if (!u_light_active[i]) continue; // Nếu đèn tắt thì bỏ qua
+            if (!u_light_active[i]) continue;
             
-            vec3 L = normalize(u_light_pos[i] - vertPos);
+            // Transform light position to view space
+            vec4 lightPosView = view * vec4(u_light_pos[i], 1.0);
+            vec3 L = normalize(lightPosView.xyz - vertPos);
             vec3 R = reflect(-L, N);
             
             float diff = max(dot(N, L), 0.0);

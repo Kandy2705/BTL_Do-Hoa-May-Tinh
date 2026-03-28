@@ -159,11 +159,11 @@ class MathematicalSurface(BaseShape):
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
         if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud()
+            self.lighting.setup_gouraud(view_matrix=view)
         elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1)
+            self.lighting.setup_phong(mode=1, view_matrix=view)
         else:
-            self.lighting.setup_phong(mode=0)
+            self.lighting.setup_phong(mode=0, view_matrix=view)
         
         self.vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)

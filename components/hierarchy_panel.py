@@ -10,8 +10,12 @@ class HierarchyPanel:
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         
+        # Ensure minimum window size
+        win_w = max(win_w, 800)
+        win_h = max(win_h, 600)
+        
         imgui.set_next_window_position(0, 20)
-        imgui.set_next_window_size(275, win_h - 220)
+        imgui.set_next_window_size(275, max(win_h - 220, 100))
         imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
         # Check if in Normal mode (category 5)
