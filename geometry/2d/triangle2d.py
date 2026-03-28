@@ -68,12 +68,9 @@ class Triangle(BaseShape):
         return self
     
     def set_color(self, color):
-        """Set color for the triangle - override BaseShape method"""
-        # Update colors with new color
         self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
-        # Re-setup the VBO to update colors
         self.vao.activate()
-        buffer_idx = self.vao.vbo[1]  # Get the color VBO at location 1
+        buffer_idx = self.vao.vbo[1]
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
         GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)

@@ -93,12 +93,7 @@ class CoordinateSystem:
         self.vao.deactivate()
         
     def toggle_visibility(self):
-        """Bật/tắt hiển thị hệ trục tọa độ"""
         self.visible = not self.visible
-        
-    def set_visibility(self, visible):
-        """Thiết lập hiển thị hệ trục tọa độ"""
-        self.visible = visible
         
     def set_mode(self, is_3d):
         """Chuyển đổi giữa chế độ 2D và 3D"""
