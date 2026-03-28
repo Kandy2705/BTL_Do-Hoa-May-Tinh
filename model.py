@@ -61,12 +61,12 @@ class AppModel:
         }
         # Himmelblau minima at (3,2), (-2.8,3.1), (-3.8,-3.3), (3.6,-1.8)
         self.sgd_initial_positions = {
-            'GD': [2.5, 2.5],        # Đỏ
-            'SGD': [-3.5, 2.5],      # Xanh lá
-            'MiniBatch': [2.5, -2.5], # Xanh dương
-            'Momentum': [-3.5, -3.5], # Vàng
-            'Nesterov': [4.0, 0.0],  # Cam
-            'Adam': [0.0, 4.0],      # Hồng
+            'GD': [4.5, 4.0],        # Đỏ
+            'SGD': [-4.0, 4.0],      # Xanh lá
+            'MiniBatch': [4.0, -4.0], # Xanh dương
+            'Momentum': [-4.0, -4.0], # Vàng
+            'Nesterov': [4.5, -4.0], # Cam
+            'Adam': [0.0, 4.5],      # Hồng
         }
         self.sgd_simulation_running = False
         self.sgd_step_count = 0
