@@ -17,7 +17,7 @@ class AppController:
         # Set model reference in viewer for gizmo interaction
         self.view.set_model_reference(self.model)
         
-        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=True)
+        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
         self._setup_coordinate_system()
 
         self.view.scroll_callback = self.on_scroll
