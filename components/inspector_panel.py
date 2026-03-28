@@ -8,8 +8,12 @@ class InspectorPanel:
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         
+        # Ensure minimum window size
+        win_w = max(win_w, 800)
+        win_h = max(win_h, 600)
+        
         imgui.set_next_window_position(win_w - 320, 20)
-        imgui.set_next_window_size(320, win_h - 20)
+        imgui.set_next_window_size(320, max(win_h - 20, 100))
         imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
         # Check if in Normal mode (category 5)
@@ -167,8 +171,17 @@ class InspectorPanel:
                         if changed_flat:
                             actions['update_attr'] = {"obj": target.drawable, "attr": "use_flat_color", "val": new_flat}
                             if new_flat:
-                                # Nếu bật màu phẳng, lấy màu hiện tại làm màu phẳng luôn
                                 target.drawable.set_solid_color(target.color[:3])
+                        imgui.next_column()
+                        
+                        # 5. SHININESS (Độ bóng cho specular)
+                        imgui.text("Shininess"); imgui.next_column()
+                        imgui.push_item_width(-1)
+                        current_shininess = getattr(target.drawable, 'shininess', 100.0)
+                        changed_shin, new_shininess = imgui.drag_float(f"##shininess_{target.id}", current_shininess, 1.0, 1.0, 500.0, "%.0f")
+                        if changed_shin:
+                            actions['update_attr'] = {"obj": target.drawable, "attr": "shininess", "val": new_shininess}
+                        imgui.pop_item_width()
                         imgui.next_column()
                     
                     imgui.columns(1)

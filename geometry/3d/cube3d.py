@@ -101,6 +101,10 @@ class Cube(BaseShape):
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
+        # Upload view matrix for light transform
+        loc_view = GL.glGetUniformLocation(self.shader.render_idx, "view")
+        if loc_view != -1: self.uma.upload_uniform_matrix4fv(view, 'view', True)
+        
         # --- 1. Truyền công tắc Flat Color ---
         loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
         if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)

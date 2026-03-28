@@ -16,11 +16,12 @@ uniform sampler2D u_texture;
 uniform int u_render_mode;
 uniform int u_display_mode; // 0: RGB, 1: Depth Map
 uniform float u_cam_far;    // Tầm nhìn xa của Camera để chuẩn hóa màu
+uniform mat4 view;  // View matrix for light transform
 
 // --- HỆ THỐNG NHIỀU ĐÈN (TỐI ĐA 4 ĐÈN) ---
 #define MAX_LIGHTS 4
 uniform int u_num_lights;
-uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_pos[MAX_LIGHTS];  // World space
 uniform vec3 u_light_color[MAX_LIGHTS];
 uniform float u_light_intensity[MAX_LIGHTS];
 uniform bool u_light_active[MAX_LIGHTS];
@@ -48,28 +49,42 @@ void main() {
         return;
     }
     
-    // --- HỆ THỐNG NHIỀU ĐÈN (TỐI ĐA 4 ĐÈN) ---
-    vec3 ambient = vec3(0.1, 0.1, 0.1);
-    vec3 final_lighting = vec3(0.0, 0.0, 0.0);
+    // --- GOURAUD vs PHONG ---
+    vec3 lighting;
     
-    vec3 N = normalize(normalInterp);
-    vec3 V = normalize(-vertPos);
-    
-    for (int i = 0; i < u_num_lights; i++) {
-        if (!u_light_active[i]) continue;
+    if (u_render_mode == 1) {
+        // GOURAUD: Lighting đã tính ở vertex shader, chỉ nhân với màu
+        lighting = gouraudLighting;
+    } else if (u_render_mode == 2) {
+        // PHONG: Tính lighting ở fragment shader
+        vec3 ambient = vec3(0.1, 0.1, 0.1);
+        vec3 final_lighting = vec3(0.0, 0.0, 0.0);
         
-        vec3 L = normalize(u_light_pos[i] - vertPos);
-        vec3 R = reflect(-L, N);
+        vec3 N = normalize(normalInterp);
+        vec3 V = normalize(-vertPos);
         
-        float diff = max(dot(N, L), 0.0);
-        vec3 diffuse = diff * u_light_color[i] * u_light_intensity[i];
+        for (int i = 0; i < u_num_lights; i++) {
+            if (!u_light_active[i]) continue;
+            
+            // Transform light position to view space
+            vec4 lightPosView = view * vec4(u_light_pos[i], 1.0);
+            vec3 L = normalize(lightPosView.xyz - vertPos);
+            vec3 R = reflect(-L, N);
+            
+            float diff = max(dot(N, L), 0.0);
+            vec3 diffuse = diff * u_light_color[i] * u_light_intensity[i];
+            
+            float spec = pow(max(dot(V, R), 0.0), 32.0);
+            vec3 specular = 0.5 * spec * u_light_color[i] * u_light_intensity[i];
+            
+            final_lighting += diffuse + specular;
+        }
         
-        float spec = pow(max(dot(V, R), 0.0), 32.0);
-        vec3 specular = 0.5 * spec * u_light_color[i] * u_light_intensity[i];
-        
-        final_lighting += diffuse + specular;
+        lighting = ambient + final_lighting;
+    } else {
+        // Không có lighting (chế độ 0 hoặc 3)
+        lighting = vec3(1.0, 1.0, 1.0);
     }
     
-    vec3 lighting = ambient + final_lighting;
     fragColor = vec4(lighting * baseColor.rgb, baseColor.a);
 }

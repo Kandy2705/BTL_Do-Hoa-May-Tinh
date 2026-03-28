@@ -264,13 +264,17 @@ class Viewer:
         actions = {}
         win_w, win_h = glfw.get_window_size(self.win)
         
+        # Ensure minimum window size
+        win_w = max(win_w, 800)
+        win_h = max(win_h, 600)
+        
         # 1. MAIN MENU BAR
         menu_actions = MainMenu.draw(model)
         actions.update(menu_actions)
         
         # 2. THANH CÔNG CỤ VIEWPORT
         imgui.set_next_window_position(275 + 40, 20)
-        imgui.set_next_window_size(win_w - 595 - 40, 35)
+        imgui.set_next_window_size(max(win_w - 595 - 40, 100), 35)
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
         imgui.begin("ViewportToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
         
@@ -298,7 +302,7 @@ class Viewer:
 
         # 3. THANH CÔNG CỤ TRANSFORM TOOLS (Giữ nguyên code gốc)
         imgui.set_next_window_position(275, 20)
-        imgui.set_next_window_size(40, win_h - 220)
+        imgui.set_next_window_size(40, max(win_h - 220, 100))
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
         imgui.begin("Tools", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
 
@@ -336,7 +340,7 @@ class Viewer:
         
         # 6. PROJECT & CONSOLE
         imgui.set_next_window_position(0, win_h - 200)
-        imgui.set_next_window_size(win_w - 320, 200)
+        imgui.set_next_window_size(max(win_w - 320, 100), 200)
         imgui.begin("Project", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         imgui.text("Assets > Models"); imgui.separator()
         if imgui.button("Import Model"): actions['browse_model_file'] = True
