@@ -12,8 +12,37 @@ class InspectorPanel:
         imgui.set_next_window_size(320, win_h - 20)
         imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
+        # Check if in Normal mode (category 5)
+        is_normal_mode = (model.selected_category == 5)
+        
         selected_objects = model.scene.selected_objects
         
+        if not is_normal_mode:
+            # Non-Normal mode - show simplified inspector
+            imgui.text_colored("View Only Mode", 0.7, 0.7, 0.7)
+            imgui.separator()
+            
+            mode_names = {
+                0: "2D Shapes",
+                1: "3D Shapes", 
+                2: "Mathematical Surface",
+                3: "Model from file",
+                4: "SGD Visualization"
+            }
+            mode_name = mode_names.get(model.selected_category, "Unknown")
+            imgui.text(f"Current Mode: {mode_name}")
+            imgui.separator()
+            
+            # Show shape info if applicable
+            if hasattr(model, 'menu_options') and model.selected_category < 5:
+                options = model.menu_options
+                if model.selected_idx >= 0 and model.selected_idx < len(options):
+                    imgui.text(f"Shape: {options[model.selected_idx]}")
+            
+            imgui.end()
+            return actions
+        
+        # Normal mode - full inspector
         if len(selected_objects) == 0:
             imgui.text_disabled("No Object Selected")
         elif len(selected_objects) > 1:

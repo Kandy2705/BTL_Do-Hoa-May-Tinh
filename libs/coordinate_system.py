@@ -108,3 +108,4 @@ class CoordinateSystem:
             if hasattr(self, 'grid_vao'):
                 self.grid_vao.add_vbo(0, self.grid_vertices, ncomponents=3, stride=0, offset=None)
                 self.grid_vao.add_vbo(1, self.grid_colors, ncomponents=3, stride=0, offset=None)
+
