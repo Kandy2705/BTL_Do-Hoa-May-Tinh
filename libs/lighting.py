@@ -99,7 +99,9 @@ class LightingManager:
                     light: Optional[Light] = None,
                     material: Optional[Material] = None,
                     mode: int = 1,
-                    view_matrix: Optional[np.ndarray] = None):
+                    view_matrix: Optional[np.ndarray] = None,
+                    display_mode: int = 0,
+                    cam_far: float = 100.0):
         """
         Setup Phong lighting uniforms.
         
@@ -108,6 +110,8 @@ class LightingManager:
             material: Material properties (uses default if None)
             mode: Rendering mode (default: 1)
             view_matrix: View matrix for transforming light to view space
+            display_mode: 0=RGB, 1=Depth Map
+            cam_far: Camera far plane for depth normalization
         """
         light = light or self.DEFAULT_LIGHT
         material = material or self.DEFAULT_MATERIAL
@@ -136,6 +140,10 @@ class LightingManager:
         # Upload view matrix for light transform
         if view_matrix is not None:
             self.uma.upload_uniform_matrix4fv(view_matrix, 'view', True)
+        
+        # Upload display mode and camera far plane
+        self.uma.upload_uniform_scalar1i(display_mode, 'u_display_mode')
+        self.uma.upload_uniform_scalar1f(cam_far, 'u_cam_far')
     
     def setup_phong_multi_material(self,
                                     light: Optional[Light] = None,

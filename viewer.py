@@ -210,7 +210,9 @@ class Viewer:
         # Draw SGD visualization if in SGD category
         if self.model and self.model.selected_category == 4 and self.model.sgd_visualizer:
             wireframe_mode = getattr(self.model, 'sgd_wireframe_mode', 0)
-            self.model.sgd_visualizer.draw(projection, view, wireframe_mode)
+            display_mode = getattr(self.model, 'display_mode', 0)
+            cam_far = getattr(self.trackball, 'far', 100.0)
+            self.model.sgd_visualizer.draw(projection, view, wireframe_mode, display_mode, cam_far)
         else:
             # Draw regular drawables (mesh objects)
             for drawable in drawables:

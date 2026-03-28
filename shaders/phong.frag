@@ -11,9 +11,20 @@ uniform mat3 I_light;
 uniform int mode;   // Rendering mode
 uniform float shininess; // Shininess
 uniform vec3 light_pos; // Light position
+uniform int u_display_mode; // 0: RGB, 1: Depth Map
+uniform float u_cam_far;    // Camera far plane for depth normalization
 out vec4 fragColor;
 
 void main() {
+  // --- DEPTH MAP MODE ---
+  if (u_display_mode == 1) {
+    float dist = -vertPos.z;
+    float normalized_depth = clamp(dist / u_cam_far, 0.0, 1.0);
+    float color_val = 1.0 - normalized_depth;
+    fragColor = vec4(vec3(color_val), 1.0);
+    return;
+  }
+  
   vec3 N = normalize(normal_interp);
   vec3 L = normalize(light_pos - vertPos);
   vec3 R = reflect(-L, N);      // Reflected light vector

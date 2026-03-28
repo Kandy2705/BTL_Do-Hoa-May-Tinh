@@ -262,7 +262,7 @@ class SGDVisualizer:
         
         return [dx, dy, dz]
     
-    def draw(self, projection, view, wireframe_mode=0):
+    def draw(self, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0):
         GL.glUseProgram(self.surface_shader.render_idx)
         
         modelview = view @ np.eye(4, dtype=np.float32)
@@ -270,7 +270,7 @@ class SGDVisualizer:
         self.surface_uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.surface_uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        self.surface_lighting.setup_phong(mode=1, view_matrix=view)
+        self.surface_lighting.setup_phong(mode=1, view_matrix=view, display_mode=display_mode, cam_far=cam_far)
         
         if wireframe_mode == 1:
             GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
@@ -287,12 +287,12 @@ class SGDVisualizer:
             dx, dy, dz = self.get_draw_coords(pos[0], pos[1])
             
             color = self.optimizer_colors.get(opt['type'], [1, 0, 1])
-            self._draw_sphere(dx, dy, dz, color, projection, view, wireframe_mode)
+            self._draw_sphere(dx, dy, dz, color, projection, view, wireframe_mode, display_mode, cam_far)
             
             if len(opt['history']) >= 2:
                 self._draw_trail(opt['history'], opt['type'], projection, view)
     
-    def _draw_sphere(self, x, y, z, color, projection, view, wireframe_mode=0):
+    def _draw_sphere(self, x, y, z, color, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0):
         lat_div, long_div = 12, 12
         radius = 0.05
         
@@ -341,7 +341,7 @@ class SGDVisualizer:
         elif wireframe_mode == 2:
             GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_POINT)
         else:
-            self.marker_lighting.setup_phong(mode=1, view_matrix=view)
+            self.marker_lighting.setup_phong(mode=1, view_matrix=view, display_mode=display_mode, cam_far=cam_far)
         
         sphere_vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(indices), GL.GL_UNSIGNED_INT, None)
