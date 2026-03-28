@@ -328,6 +328,13 @@ class AppController:
         if 'clear_selection' in actions:
             self.model.scene.clear_selection()
             
+        if 'delete_object' in actions:
+            obj_to_delete = actions['delete_object']
+            self.model.scene.remove_object(obj_to_delete)
+            if obj_to_delete in self.model.scene.selected_objects:
+                self.model.scene.selected_objects.remove(obj_to_delete)
+            print(f"Deleted object: {obj_to_delete.name}")
+            
         # Thêm đoạn này vào để cập nhật tự động TẤT CẢ các loại thuộc tính (FOV, Color, Intensity...)
         if 'update_attr' in actions:
             obj = actions['update_attr']['obj']

@@ -79,6 +79,12 @@ class HierarchyPanel:
                         'object': obj,
                         'multi_select': is_multi_select
                     }
+                
+                # Right-click context menu for each object
+                if imgui.begin_popup_context_item(f"obj_menu_{obj.id}"):
+                    if imgui.menu_item("Delete")[0]:
+                        actions['delete_object'] = obj
+                    imgui.end_popup()
             
             imgui.tree_pop()
             
