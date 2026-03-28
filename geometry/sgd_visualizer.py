@@ -153,15 +153,6 @@ class SGDVisualizer:
         
         self.trail_shader = Shader("./shaders/color_interp.vert", "./shaders/color_interp.frag")
         self.trail_uma = UManager(self.trail_shader)
-        
-        self._setup_marker_vao()
-        self._setup_trail_vao()
-    
-    def _setup_marker_vao(self):
-        pass
-    
-    def _setup_trail_vao(self):
-        pass
     
     def add_optimizer(self, name, optimizer_type, initial_pos=None):
         if initial_pos is None:
@@ -384,13 +375,6 @@ class SGDVisualizer:
             trail_vao.activate()
             GL.glDrawArrays(GL.GL_LINES, 0, len(vertices))
     
-    def set_loss_function(self, loss_func):
-        self.loss_func = loss_func
-        self._generate_surface()
-        if self.surface_vao:
-            self.surface_vao.delete()
-            self.setup()
-    
     def reset_optimizer(self, name, initial_pos=None):
         if name not in self.optimizers:
             return
@@ -411,18 +395,3 @@ class SGDVisualizer:
         opt['momentum_buffer'] = np.zeros(2, dtype=np.float32)
         opt['adam_m'] = np.zeros(2, dtype=np.float32)
         opt['adam_v'] = np.zeros(2, dtype=np.float32)
-    
-    def get_optimizer_state(self, name):
-        if name not in self.optimizers:
-            return None
-        return self.optimizers[name]
-    
-    def toggle_optimizer(self, name):
-        if name not in self.optimizers:
-            return
-        self.optimizers[name]['running'] = not self.optimizers[name]['running']
-    
-    def is_running(self, name):
-        if name not in self.optimizers:
-            return False
-        return self.optimizers[name]['running']

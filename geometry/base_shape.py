@@ -40,9 +40,3 @@ class BaseShape:
         
         # Combine transforms: T * R * S
         return translate_mat @ rotate_x @ rotate_y @ rotate_z @ scale_mat
-    
-    def draw_with_transform(self, projection, view, model):
-        """Draw with transform applied - to be called by subclasses"""
-        object_transform = self.get_transform_matrix()
-        final_model = object_transform @ (model if model is not None else np.identity(4, dtype=np.float32))
-        return self.draw(projection, view, final_model)

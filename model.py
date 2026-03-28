@@ -128,10 +128,6 @@ class AppModel:
     def shader_names(self) -> List[str]:
         return ["Solid Color", "Gouraud", "Phong", "Rainbow Interpolation"]
 
-    @property
-    def category_options(self) -> List[str]:
-        return ["Normal", "2D Shapes", "3D Shapes", "Mathematical Surface", "Model from file", "SGD"]
-
     def _shape_factories(self) -> List[Tuple[str, str]]:
         if self.selected_category == 0:  # 2D
             return [
@@ -416,17 +412,12 @@ class AppModel:
         self.hierarchy_objects.append(hierarchy_obj)
     
     def select_hierarchy_object(self, idx: int) -> None:
-        """Select hierarchy object by index"""
-        # Set new selection (no need to clear old selections with new structure)
         if 0 <= idx < len(self.hierarchy_objects):
             self.selected_hierarchy_idx = idx
+            for i, obj in enumerate(self.hierarchy_objects):
+                obj["selected"] = (i == idx)
         else:
             self.selected_hierarchy_idx = -1
-
-    def select_hierarchy_object(self, idx: int):
-        for i, obj in enumerate(self.hierarchy_objects):
-            obj["selected"] = (i == idx)
-        self.selected_hierarchy_idx = idx
 
     def get_selected_hierarchy_object(self):
         if 0 <= self.selected_hierarchy_idx < len(self.hierarchy_objects):
@@ -438,12 +429,8 @@ class AppModel:
         
         if object_idx != -1:
             target_obj = self.scene.objects[object_idx]
-            self._set_nested_attribute(target_obj, key_path, value)
 
-            if key_path == "mesh_renderer.texture_filename" and value == "":
-                self.remove_texture_objects(obj_id)
-
-            # --- THÊM ĐOẠN NÀY ĐỂ XỬ LÝ LỆNH BẤT/TẮT CÁC CHẾ ĐỘ ---
+            # --- THÊM ĐOẠN NÀY ĐỂ XỬ LÝ LỆNH BẬT/TẮT CÁC CHẾ ĐỘ ---
             # Xử lý các lệnh bật/tắt state đặc biệt (bool, enum)
             if hasattr(target_obj, 'drawable') and target_obj.drawable:
                 
@@ -463,20 +450,6 @@ class AppModel:
                     if hasattr(target_obj, 'drawable') and target_obj.drawable:
                         target_obj.drawable.render_mode = value
                         print(f"[{target_obj.name}] Render Mode changed to: {value}")
-
-            self.update_hierarchy_state(object_idx, target_obj)
-    
-    def get_selected_object_components(self):
-        """Get components for currently selected object"""
-        if self.selected_hierarchy_idx == -1:
-            # Mesh object selected - return global components
-            return self.mesh_components
-        else:
-            # Hierarchy object selected - return the object itself (flat structure)
-            selected_obj = self.get_selected_hierarchy_object()
-            if selected_obj:
-                return selected_obj
-            return {}
     
     def update_selected_object_data(self, key: str, value) -> None:
         """Update data for the selected hierarchy object"""
@@ -612,54 +585,6 @@ class AppModel:
     def reload_current_shape(self) -> None:
         """Reload the current shape"""
         self.load_active_drawable()
-
-    def get_hierarchy_drawables(self) -> List[Any]:
-        """Create drawable objects for hierarchy objects"""
-        hierarchy_drawables = []
-        
-        for obj in self.hierarchy_objects:
-            if obj["type"] in ["3d", "math", "custom_model"]:
-                try:
-                    # Determine shape type and create appropriate drawable
-                    if obj["type"] == "3d":
-                        # Use the first 3D shape (Cube) as default
-                        module_name, class_name = self._shape_factories()[4]  # Cube is at index 4 when category 1
-                        module = importlib.import_module(module_name)
-                        shape_cls = getattr(module, class_name)
-                        drawable = shape_cls()
-                        
-                    elif obj["type"] == "math":
-                        # Use math surface
-                        module_name, class_name = self._shape_factories()[0]  # First math surface
-                        module = importlib.import_module(module_name)
-                        shape_cls = getattr(module, class_name)
-                        drawable = shape_cls(self.math_function)
-                        
-                    elif obj["type"] == "custom_model":
-                        # Use model loader
-                        module_name, class_name = self._shape_factories()[0]  # First model
-                        module = importlib.import_module(module_name)
-                        shape_cls = getattr(module, class_name)
-                        drawable = shape_cls(self.model_filename)
-                    
-                    # Apply transform
-                    if hasattr(drawable, 'set_transform'):
-                        drawable.set_transform(
-                            obj["transform"]["position"],
-                            obj["transform"]["rotation"], 
-                            obj["transform"]["scale"]
-                        )
-                    
-                    # Apply color if mesh renderer exists
-                    if "mesh_renderer" in obj and hasattr(drawable, 'set_color'):
-                        drawable.set_color(obj["mesh_renderer"]["color"])
-                        
-                    hierarchy_drawables.append(drawable)
-                    
-                except Exception as e:
-                    print(f"[AppModel] Failed to create drawable for {obj['name']}: {e}")
-                    
-        return hierarchy_drawables
 
     # === SGD Visualization Methods ===
     

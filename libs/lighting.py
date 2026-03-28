@@ -145,60 +145,6 @@ class LightingManager:
         self.uma.upload_uniform_scalar1i(display_mode, 'u_display_mode')
         self.uma.upload_uniform_scalar1f(cam_far, 'u_cam_far')
     
-    def setup_phong_multi_material(self,
-                                    light: Optional[Light] = None,
-                                    material1: Optional[Material] = None,
-                                    material2: Optional[Material] = None,
-                                    shininess: float = 100.0,
-                                    mode: int = 1):
-        """
-        Setup Phong lighting with multiple materials (for PatchEx).
-        
-        Args:
-            light: Light source (uses default if None)
-            material1: First material properties
-            material2: Second material properties
-            shininess: Shininess exponent
-            mode: Rendering mode
-        """
-        light = light or self.DEFAULT_LIGHT
-        material1 = material1 or Material(diffuse=(0.5, 0.0, 0.7),
-                                         specular=(0.5, 0.0, 0.7),
-                                         ambient=(0.5, 0.0, 0.7),
-                                         shininess=shininess)
-        material2 = material2 or Material(diffuse=(0.1, 0.7, 0.8),
-                                         specular=(0.1, 0.7, 0.8),
-                                         ambient=(0.1, 0.7, 0.8),
-                                         shininess=shininess)
-        
-        # Create I_light matrix
-        I_light = np.array([
-            light.diffuse,
-            light.specular,
-            light.ambient
-        ], dtype=np.float32)
-        
-        # Create K_materials matrices
-        K_materials_1 = np.array([
-            material1.diffuse,
-            material1.specular,
-            material1.ambient
-        ], dtype=np.float32)
-        
-        K_materials_2 = np.array([
-            material2.diffuse,
-            material2.specular,
-            material2.ambient
-        ], dtype=np.float32)
-        
-        # Upload uniforms
-        self.uma.upload_uniform_matrix3fv(I_light, 'I_light', False)
-        self.uma.upload_uniform_vector3fv(light.position, 'light_pos')
-        self.uma.upload_uniform_matrix3fv(K_materials_1, 'K_materials_1', False)
-        self.uma.upload_uniform_matrix3fv(K_materials_2, 'K_materials_2', False)
-        self.uma.upload_uniform_scalar1f(shininess, 'shininess')
-        self.uma.upload_uniform_scalar1i(mode, 'mode')
-    
     def setup_gouraud(self,
                      light: Optional[Light] = None,
                      material: Optional[Material] = None,
