@@ -24,6 +24,7 @@ class MathematicalSurface(BaseShape):
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
         self.use_custom_color = False  # Flag to use custom color or auto-generated colors
+        self.use_flat_color = False  # Flag for flat color override
         self.original_colors = None  # Store original auto-generated colors
         
         if func is None:
@@ -187,6 +188,17 @@ class MathematicalSurface(BaseShape):
     def set_color_mode(self, use_custom_color):
         """Toggle between auto-color and custom color mode"""
         self.use_custom_color = use_custom_color
+
+    def set_solid_color(self, color):
+        """Set solid color for the mathematical surface"""
+        self.use_flat_color = True
+        self.flat_color = np.array(color[:3], dtype=np.float32)
+        self.colors = np.array([color[:3]] * len(self.vertices), dtype=np.float32)
+        self.vao.activate()
+        buffer_idx = self.vao.vbo[1]
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
 
     def cleanup(self):
         """Clean up resources"""
