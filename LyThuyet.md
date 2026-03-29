@@ -454,6 +454,167 @@ N·L = -1.0 → clamp(0) = MÀU TỐI (vì bị che khuất hoàn toàn)
 H = normalize(L + V)
 ```
 
+### 🌟 Gouraud Shading vs Phong Shading
+
+**Gouraud Shading** = Shading nội suy màu tại các đỉnh, rồi nội suy sang pixel.
+
+**Phong Shading** = Nội suy pháp tuyến (Normal) tại các đỉnh, rồi tính màu tại pixel.
+
+| Tiêu chí | **Gouraud Shading** | **Phong Shading** |
+|-----------|---------------------|-------------------|
+| **Cách hoạt động** | Tính màu tại **đỉnh**, nội suy ra pixel | Nội suy **pháp tuyến** ra pixel, rồi tính màu |
+| **Chất lượng** | Có thể thấy "đường" giữa các đỉnh | Mượt hơn, đẹp hơn |
+| **Tốc độ** | **Nhanh** (tính lighting 1 lần/đỉnh) | **Chậm** (tính lighting mỗi pixel) |
+| **Ứng dụng trong project** | ✅ Vertex Shader | ✅ Fragment Shader |
+
+---
+
+### 🌟 Hướng dẫn chi tiết: Gouraud Shading (Tính tại Đỉnh)
+
+**Bước 1: Tính pháp tuyến tại mỗi đỉnh**
+```
+Normal tại đỉnh = trung bình cộng các Normal của các mặt kề
+```
+
+**Bước 2: Tính Phong lighting tại mỗi đỉnh**
+```
+Màu_tại_đỉnh = Ambient + Diffuse + Specular
+```
+
+**Bước 3: Nội suy màu ra pixel bên trong tam giác**
+```
+Pixel = interpolate(Màu_đỉnh_1, Màu_đỉnh_2, Màu_đỉnh_3)
+```
+
+**Minh họa:**
+
+```
+GOURAUD SHADING:
+
+Bước 1: Tính Normal tại đỉnh
+    Normal_1 = (N_mặt_1 + N_mặt_2 + N_mặt_3) / 3
+    
+Bước 2: Tính màu tại đỉnh (Phong lighting)
+    ●─────────●
+    │         │
+    │  ▲     │     Màu_1 = Ambient + Diffuse(N1) + Specular(N1)
+    │ ╱│╲    │     Màu_2 = Ambient + Diffuse(N2) + Specular(N2)
+    │╱ │ ╲   │     Màu_3 = Ambient + Diffuse(N3) + Specular(N3)
+    ●─────────●
+    
+Bước 3: Nội suy màu (Gouraud)
+    Màu_pixel = Màu_1 * w1 + Màu_2 * w2 + Màu_3 * w3
+    (w1, w2, w3 = trọng số barycentric)
+```
+
+---
+
+### 🌟 Hướng dẫn chi tiết: Phong Shading (Tính tại Pixel)
+
+**Bước 1: Tính pháp tuyến tại mỗi đỉnh**
+
+**Bước 2: Nội suy pháp tuyến ra pixel**
+```
+N_pixel = normalize(N_đỉnh_1 * w1 + N_đỉnh_2 * w2 + N_đỉnh_3 * w3)
+```
+
+**Bước 3: Tính Phong lighting tại pixel**
+```
+Màu_pixel = Ambient + Diffuse(N_pixel) + Specular(N_pixel)
+```
+
+**Minh họa:**
+
+```
+PHONG SHADING:
+
+Bước 1: Tính Normal tại đỉnh
+    ●─────────●
+    │         │
+    │  ▲     │     N_1, N_2, N_3 (pháp tuyến tại mỗi đỉnh)
+    │ ╱│╲    │
+    │╱ │ ╲   │
+    ●─────────●
+    
+Bước 2: Nội suy Normal (tại mỗi pixel)
+    N_pixel = w1*N_1 + w2*N_2 + w3*N_3
+    Sau đó: N_pixel = normalize(N_pixel)
+    
+Bước 3: Tính màu tại pixel (Phong lighting)
+    Màu_pixel = Ambient + Diffuse(N_pixel) + Specular(N_pixel)
+```
+
+---
+
+### 🌟 Kết hợp: Màu + Texture + Shading
+
+**Câu hỏi**: Làm sao để vừa dùng **màu chọn**, vừa dùng **texture**, vừa có **shading**?
+
+**Trả lời**: Kết hợp theo công thức:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CÔNG THỨC KẾT HỢP: MÀU + TEXTURE + SHADING          │
+│                                                                             │
+│  Màu cuối = (Màu_nền × Texture) × Shading                                │
+│                                                                             │
+│  Chi tiết:                                                                 │
+│  ─────────────────────────────────────────────────────────────────────────│
+│  1. Màu nền (Base Color): màu do người dùng chọn hoặc màu mặc định      │
+│  2. Texture: ảnh được "dán" lên vật (UV mapping)                        │
+│  3. Shading: ánh sáng (Ambient + Diffuse + Specular)                      │
+│                                                                             │
+│  Trong code Fragment Shader:                                               │
+│  ─────────────────────────────────────────────────────────────────────────│
+│                                                                             │
+│  vec3 baseColor = u_color;           // Màu chọn                          │
+│  vec3 texColor = texture(u_texture, texcoord).rgb;  // Màu từ texture   │
+│                                                                             │
+│  // Kết hợp màu nền và texture                                            │
+│  vec3 materialColor = mix(baseColor, texColor, u_use_texture);           │
+│                                                                             │
+│  // Áp dụng shading lên màu đã kết hợp                                    │
+│  vec3 finalColor = materialColor * lightingResult;                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Luồng xử lý trong Fragment Shader:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    LUỒNG XỬ LÝ TRONG FRAGMENT SHADER                       │
+│                                                                             │
+│  Input:                                                                    │
+│  ├── vertex_color (màu từ đỉnh)                                         │
+│  ├── texcoord (tọa độ UV)                                                │
+│  ├── normal (pháp tuyến đã nội suy)                                       │
+│  └── lights (thông tin ánh sáng)                                          │
+│                                                                             │
+│  Bước 1: Lấy màu từ Texture (nếu có)                                      │
+│  ├── texColor = texture(u_texture, texcoord)                              │
+│  └── Nếu không có texture: texColor = (1, 1, 1)                          │
+│                                                                             │
+│  Bước 2: Kết hợp màu vertex và texture                                     │
+│  ├── color = vertex_color × texColor                                       │
+│  └── Hoặc: color = mix(vertex_color, texColor, use_texture)                │
+│                                                                             │
+│  Bước 3: Tính Shading (Phong lighting)                                   │
+│  ├── Ambient = ka × Ia                                                    │
+│  ├── Diffuse = kd × max(N·L, 0) × Id                                     │
+│  └── Specular = ks × (N·H)^shininess × Is                               │
+│                                                                             │
+│  Bước 4: Áp dụng Shading lên màu                                         │
+│  └── finalColor = color × (Ambient + Diffuse + Specular)                  │
+│                                                                             │
+│  Output: finalColor (màu cuối của pixel)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Trong project của bạn:**
+- **Mode A, B, C, D** = Phong Shading (Fragment Shader tính lighting)
+- **Mode E, F** = Gouraud Shading (Vertex Shader tính lighting, Fragment nội suy màu)
+
 ---
 
 ## 2.4. Depth Map (Bản đồ độ sâu) — "Ký ức của camera về khoảng cách"
