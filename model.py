@@ -225,6 +225,8 @@ class AppModel:
             drawable = shape_cls(vert_shader, frag_shader)
             
         drawable.setup()
+        if hasattr(drawable, 'render_mode') and self.selected_shader == 3:
+            drawable.render_mode = 3
         self.drawables.append(drawable)
         self.active_drawable = drawable
 

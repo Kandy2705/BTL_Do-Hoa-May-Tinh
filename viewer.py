@@ -214,7 +214,15 @@ class Viewer:
         # Draw SGD visualization if in SGD category
         if self.model and self.model.selected_category == 4 and self.model.sgd_visualizer:
             wireframe_mode = getattr(self.model, 'sgd_wireframe_mode', 0)
-            self.model.sgd_visualizer.draw(projection, view, wireframe_mode, display_mode, cam_far)
+            show_trajectory = getattr(self.model, 'sgd_show_trajectory', True)
+            self.model.sgd_visualizer.draw(
+                projection,
+                view,
+                wireframe_mode,
+                display_mode,
+                cam_far,
+                show_trajectory=show_trajectory,
+            )
         else:
             # Draw regular drawables (mesh objects)
             for drawable in drawables:
@@ -306,7 +314,7 @@ class Viewer:
             actions['toggle_coord_system'] = True
             
         imgui.same_line()
-        if imgui.button(" Flat Color", 85, 22):
+        if imgui.button(" Flat Shading", 100, 22):
             actions['toggle_global_flat_color'] = True
             
         # --- THÊM NÚT NÀY VÀO ĐÂY ---

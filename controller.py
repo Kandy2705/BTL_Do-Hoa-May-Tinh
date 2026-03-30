@@ -95,7 +95,7 @@ class AppController:
             elif key == glfw.KEY_Q:
                 glfw.set_window_should_close(window, True)
             elif key == glfw.KEY_S:
-                self.model.set_shader((self.model.selected_shader + 1) % 3)
+                self.model.set_shader((self.model.selected_shader + 1) % 4)
             elif key == glfw.KEY_G:
                 self.coord_system.toggle_visibility()
                 
@@ -388,7 +388,7 @@ class AppController:
             self.model.active_tool = actions['set_tool']
             print(f"Đã chuyển sang công cụ: {self.model.active_tool}")
 
-        # --- BẬT/TẮT GLOBAL FLAT COLOR ---
+        # --- BẬT/TẮT GLOBAL FLAT SHADING ---
         if 'toggle_global_flat_color' in actions:
             current_state = getattr(self.model, 'global_flat_color_enabled', False)
             new_state = not current_state
@@ -399,17 +399,16 @@ class AppController:
                     obj.drawable.use_flat_color = new_state
                     
                     if new_state:
-                        # --- SỬA Ở ĐÂY: Ép toàn bộ thành MÀU TRẮNG thay vì lấy màu của object ---
-                        obj.drawable.set_solid_color([1.0, 1.0, 1.0]) 
+                        base_color = getattr(obj, 'color', [1.0, 1.0, 1.0])
+                        obj.drawable.set_solid_color(base_color[:3])
+
+            print(f"Đã {'BẬT' if new_state else 'TẮT'} Flat Shading cho toàn scene")
             
         # --- CHUYỂN ĐỔI CHẾ ĐỘ RGB / DEPTH MAP ---
         if 'toggle_display_mode' in actions:
             current_mode = getattr(self.model, 'display_mode', 0)
             self.model.display_mode = 1 if current_mode == 0 else 0
             print(f"Đã chuyển chế độ hiển thị sang: {'Depth Map' if self.model.display_mode == 1 else 'RGB'}") 
-            
-            status = "BẬT" if self.model.display_mode == 1 else "TẮT"
-            print(f"Đã {status} chế độ Flat Color (Trắng) cho toàn bản đồ!")
             
         # SGD actions are now handled by SGDPanel and model methods
 
