@@ -25,6 +25,10 @@ class MathematicalSurface(BaseShape):
         self.frag_shader = frag_shader
         self.use_custom_color = False  # Flag to use custom color or auto-generated colors
         self.use_flat_color = False  # Flag for flat color override
+        self.use_texture = False  # Texture support
+        self.texture_id = None
+        self.render_mode = 2  # Default to Phong shading
+        self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.original_colors = None  # Store original auto-generated colors
         
         if func is None:
@@ -143,8 +147,6 @@ class MathematicalSurface(BaseShape):
         self.shader = Shader(self.vert_shader, self.frag_shader)
         self.uma = UManager(self.shader)
         
-        self.lighting = LightingManager(self.uma)
-        
         return self
 
     def draw(self, projection, view, model):
@@ -159,15 +161,46 @@ class MathematicalSurface(BaseShape):
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        if 'gouraud' in self.vert_shader.lower():
-            self.lighting.setup_gouraud(view_matrix=view)
-        elif 'phong' in self.vert_shader.lower():
-            self.lighting.setup_phong(mode=1, view_matrix=view)
-        else:
-            self.lighting.setup_phong(mode=0, view_matrix=view)
+        # Upload view matrix for light transform
+        loc_view = GL.glGetUniformLocation(self.shader.render_idx, "view")
+        if loc_view != -1: self.uma.upload_uniform_matrix4fv(view, 'view', True)
+        
+        # --- 1. Truyền công tắc Flat Color ---
+        loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
+        if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
+        
+        loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
+        if loc_flat_col != -1: 
+            GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
+        
+        # --- 2. Truyền công tắc Texture ---
+        loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
+        if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
+        
+        # --- 3. Truyền chế độ Render (0: None, 1: Gouraud, 2: Phong) ---
+        loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
+        if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
+        
+        if self.use_texture and self.texture_id is not None:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
+            if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
+        
+        # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
+        lights = getattr(self, 'scene_lights', [])
+        loc_num_lights = GL.glGetUniformLocation(self.shader.render_idx, "u_num_lights")
+        if loc_num_lights != -1: GL.glUniform1i(loc_num_lights, len(lights))
+        
+        for i, l in enumerate(lights[:4]): # Hỗ trợ tối đa 4 nguồn sáng cùng lúc
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_pos[{i}]"), *l.position)
+            GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_color[{i}]"), *l.light_color)
+            GL.glUniform1f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_intensity[{i}]"), l.light_intensity)
+            GL.glUniform1i(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_active[{i}]"), 1 if l.visible else 0)
         
         self.vao.activate()
         GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+        self.vao.deactivate()
     
     def set_color(self, color):
         """Set color for the mathematical surface - override BaseShape method"""
@@ -184,6 +217,10 @@ class MathematicalSurface(BaseShape):
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
         GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+        
+        # Cleanup texture if needed
+        if self.use_texture:
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     
     def set_color_mode(self, use_custom_color):
         """Toggle between auto-color and custom color mode"""
