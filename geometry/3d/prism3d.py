@@ -144,17 +144,23 @@ class Prism(BaseShape):
         self.uma.upload_uniform_matrix4fv(projection, 'projection', True)
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
-        # --- CÁC CÔNG TẮC CHO SIÊU SHADER ---
+        # Upload view matrix for light transform
+        loc_view = GL.glGetUniformLocation(self.shader.render_idx, "view")
+        if loc_view != -1: self.uma.upload_uniform_matrix4fv(view, 'view', True)
+        
+        # --- 1. Truyền công tắc Flat Color ---
         loc_flat = GL.glGetUniformLocation(self.shader.render_idx, "u_use_flat_color")
         if loc_flat != -1: GL.glUniform1i(loc_flat, 1 if self.use_flat_color else 0)
         
         loc_flat_col = GL.glGetUniformLocation(self.shader.render_idx, "u_flat_color")
         if loc_flat_col != -1: 
             GL.glUniform3f(loc_flat_col, self.flat_color[0], self.flat_color[1], self.flat_color[2])
-            
+        
+        # --- 2. Truyền công tắc Texture ---
         loc_tex = GL.glGetUniformLocation(self.shader.render_idx, "u_use_texture")
         if loc_tex != -1: GL.glUniform1i(loc_tex, 1 if self.use_texture else 0)
         
+        # --- 3. Truyền chế độ Render (0: None, 1: Gouraud, 2: Phong) ---
         loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
         if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
         
@@ -163,7 +169,7 @@ class Prism(BaseShape):
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
             loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
             if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
-            
+        
         # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
         lights = getattr(self, 'scene_lights', [])
         loc_num_lights = GL.glGetUniformLocation(self.shader.render_idx, "u_num_lights")

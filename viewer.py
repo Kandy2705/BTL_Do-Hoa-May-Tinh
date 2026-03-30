@@ -207,43 +207,59 @@ class Viewer:
 
         scene_lights = [obj for obj in scene_objects if hasattr(obj, 'light_intensity')]
         
+        # === LẤY CÁC GIÁ TRỊ GLOBAL ĐỂ TRUYỀN VÀO SHADER ===
+        display_mode = getattr(self.model, 'display_mode', 0)
+        cam_far      = getattr(self.trackball, 'far', 100.0)
+
         # Draw SGD visualization if in SGD category
         if self.model and self.model.selected_category == 4 and self.model.sgd_visualizer:
             wireframe_mode = getattr(self.model, 'sgd_wireframe_mode', 0)
-            display_mode = getattr(self.model, 'display_mode', 0)
-            cam_far = getattr(self.trackball, 'far', 100.0)
             self.model.sgd_visualizer.draw(projection, view, wireframe_mode, display_mode, cam_far)
         else:
             # Draw regular drawables (mesh objects)
             for drawable in drawables:
                 drawable.draw(projection, view, None)
         
+        # ==================== VẼ CÁC OBJECT CHÍNH ====================
         for obj in scene_objects:
             if not getattr(obj, 'visible', True):
                 continue 
 
             if hasattr(obj, 'drawable') and obj.drawable is not None:
-                if hasattr(obj.drawable, 'set_transform'):
+                if hasattr(obj, 'drawable') and hasattr(obj.drawable, 'set_transform'):
                     obj.drawable.set_transform(obj.position, obj.rotation, obj.scale)
-                # if hasattr(obj.drawable, 'set_color') and hasattr(obj, 'color'):
-                #     obj.drawable.set_color(obj.color[:3])
+                
                 obj.drawable.scene_lights = scene_lights
                 
-                # ---> BƠM UNIFORM DEPTH MAP TOÀN CỤC CHO MỌI VẬT THỂ <---
-                display_mode = getattr(self.model, 'display_mode', 0)
-                cam_far = getattr(self.trackball, 'far', 100.0)
-                
-                if hasattr(obj.drawable, 'shader'):
-                    gl.glUseProgram(obj.drawable.shader.render_idx)
-                    loc_mode = gl.glGetUniformLocation(obj.drawable.shader.render_idx, "u_display_mode")
-                    if loc_mode != -1: gl.glUniform1i(loc_mode, display_mode)
+                # ==================== TRUYỀN UNIFORM VÀO SHADER ====================
+                if hasattr(obj.drawable, 'shader') and obj.drawable.shader:
+                    shader_id = obj.drawable.shader.render_idx
+                    gl.glUseProgram(shader_id)
                     
-                    loc_far = gl.glGetUniformLocation(obj.drawable.shader.render_idx, "u_cam_far")
-                    if loc_far != -1: gl.glUniform1f(loc_far, cam_far)
-                # --------------------------------------------------------
-                
+                    # 1. Display Mode (RGB / Depth Map)
+                    loc_mode = gl.glGetUniformLocation(shader_id, "u_display_mode")
+                    if loc_mode != -1:
+                        gl.glUniform1i(loc_mode, display_mode)
+                    
+                    # 2. Camera Far (cho Depth Map)
+                    loc_far = gl.glGetUniformLocation(shader_id, "u_cam_far")
+                    if loc_far != -1:
+                        gl.glUniform1f(loc_far, cam_far)
+                    
+                    # 3. Shininess
+                    loc_shininess = gl.glGetUniformLocation(shader_id, "u_shininess")
+                    if loc_shininess != -1:
+                        shininess_val = getattr(obj.drawable, 'shininess', 32.0)
+                        gl.glUniform1f(loc_shininess, shininess_val)
+                    
+                    # 4. Light Range (Attenuation + Cutoff)
+                    loc_range = gl.glGetUniformLocation(shader_id, "u_light_range")
+                    if loc_range != -1:
+                        gl.glUniform1f(loc_range, 50.0)      # ← Bạn có thể chỉnh số này
+
                 obj.drawable.draw(projection, view, None)
 
+            
         if selected_objects and len(selected_objects) == 1:
             target = selected_objects[0]
             # Nếu đang chọn tool Move, Rotate hoặc Scale thì hiện Gizmo lên
