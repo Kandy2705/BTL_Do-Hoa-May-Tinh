@@ -100,7 +100,7 @@ void main() {
     else if (u_render_mode == 1) {
         lighting = gouraudLighting;
     } 
-    else if (u_render_mode == 2) {
+    else if (u_render_mode == 2 || u_render_mode == 3) {
         lighting = compute_phong_lighting(normalInterp);
     } 
     else {
