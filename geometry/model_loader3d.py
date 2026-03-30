@@ -29,6 +29,11 @@ class ModelLoader(BaseShape):
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.use_texture = False
         self.texture_id = None
+        self.material_texture_path = None
+        self.material_texture_paths = {}
+        self.material_texture_ids = {}
+        self.material_groups = []
+        self.manual_texture_override = False
         self.render_mode = 2  # Mặc định là Phong Shading
         
         if filename:
@@ -60,6 +65,13 @@ class ModelLoader(BaseShape):
         if not os.path.exists(filename):
             self._create_default_cube()
             return
+        
+        self.material_texture_path = None
+        self.material_texture_paths = {}
+        self.material_texture_ids = {}
+        self.material_groups = []
+        self.manual_texture_override = False
+        self.use_texture = False
             
         file_ext = os.path.splitext(filename)[1].lower()
         
@@ -70,14 +82,58 @@ class ModelLoader(BaseShape):
         else:
             self._create_default_cube()
             
-        # SAU KHI LOAD XONG, TỰ ĐỘNG SINH UV ĐỂ DÁN ẢNH
-        self._generate_texcoords()
+        if not hasattr(self, 'texcoords') or len(self.texcoords) != len(self.vertices):
+            self._generate_texcoords()
+
+    def _parse_obj_index(self, raw_value, count):
+        if raw_value == '':
+            return None
+        idx = int(raw_value)
+        return idx - 1 if idx > 0 else count + idx
+
+    def _load_mtl_file(self, mtl_path):
+        materials = {}
+        current_material = None
+
+        if not os.path.exists(mtl_path):
+            return materials
+
+        with open(mtl_path, 'r', encoding='utf-8', errors='ignore') as mtl_file:
+            for line in mtl_file:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = line.split()
+                key = parts[0]
+
+                if key == 'newmtl' and len(parts) > 1:
+                    current_material = " ".join(parts[1:])
+                    materials[current_material] = {}
+                elif current_material is not None and key == 'Kd' and len(parts) >= 4:
+                    materials[current_material]['kd'] = [float(parts[1]), float(parts[2]), float(parts[3])]
+                elif current_material is not None and key == 'map_Kd' and len(parts) > 1:
+                    texture_rel = " ".join(parts[1:])
+                    texture_path = texture_rel if os.path.isabs(texture_rel) else os.path.join(os.path.dirname(mtl_path), texture_rel)
+                    materials[current_material]['map_kd'] = os.path.normpath(texture_path)
+
+        return materials
     
     def _load_obj(self, filename):
-        vertices = []
+        positions = []
+        texcoords = []
         normals = []
-        faces = []
         colors = []
+        out_vertices = []
+        out_texcoords = []
+        out_normals = []
+        out_colors = []
+        out_indices = []
+        vertex_map = {}
+        materials = {}
+        used_materials = []
+        current_material = None
+        obj_dir = os.path.dirname(filename)
         
         with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
@@ -88,44 +144,87 @@ class ModelLoader(BaseShape):
                 if not parts: continue
                     
                 if parts[0] == 'v':
-                    vertices.append([float(x) for x in parts[1:4]])
+                    positions.append([float(x) for x in parts[1:4]])
                     if len(parts) >= 7:
                         r, g, b = float(parts[4]), float(parts[5]), float(parts[6])
                         if r > 1.0 or g > 1.0 or b > 1.0:
                             colors.append([r/255.0, g/255.0, b/255.0])
                         else:
                             colors.append([r, g, b])
+                    else:
+                        colors.append(None)
+                elif parts[0] == 'vt':
+                    u = float(parts[1]) if len(parts) > 1 else 0.0
+                    v = float(parts[2]) if len(parts) > 2 else 0.0
+                    texcoords.append([u, v])
                 elif parts[0] == 'vn':
                     normals.append([float(x) for x in parts[1:4]])
+                elif parts[0] == 'mtllib':
+                    material_name = " ".join(parts[1:])
+                    mtl_path = material_name if os.path.isabs(material_name) else os.path.join(obj_dir, material_name)
+                    materials.update(self._load_mtl_file(os.path.normpath(mtl_path)))
+                elif parts[0] == 'usemtl':
+                    current_material = " ".join(parts[1:]) if len(parts) > 1 else None
+                    if current_material and current_material not in used_materials:
+                        used_materials.append(current_material)
                 elif parts[0] == 'f':
-                    face_indices = []
+                    face_vertices = []
                     for part in parts[1:]:
                         indices = part.split('/')
-                        face_indices.append(int(indices[0]) - 1)
-                    faces.append(face_indices)
+                        v_idx = self._parse_obj_index(indices[0], len(positions))
+                        vt_idx = self._parse_obj_index(indices[1], len(texcoords)) if len(indices) > 1 else None
+                        vn_idx = self._parse_obj_index(indices[2], len(normals)) if len(indices) > 2 else None
+                        key = (v_idx, vt_idx, vn_idx, current_material)
+
+                        if key not in vertex_map:
+                            out_vertices.append(positions[v_idx])
+                            out_texcoords.append(texcoords[vt_idx] if vt_idx is not None and 0 <= vt_idx < len(texcoords) else [0.0, 0.0])
+                            out_normals.append(normals[vn_idx] if vn_idx is not None and 0 <= vn_idx < len(normals) else [0.0, 0.0, 0.0])
+
+                            material_info = materials.get(current_material, {})
+                            vertex_color = colors[v_idx] if 0 <= v_idx < len(colors) else None
+                            out_colors.append(vertex_color or material_info.get('kd', [1.0, 1.0, 1.0]))
+                            vertex_map[key] = len(out_vertices) - 1
+
+                        face_vertices.append(vertex_map[key])
+
+                    if not self.material_groups or self.material_groups[-1]['material'] != current_material:
+                        self.material_groups.append({
+                            'material': current_material,
+                            'start': len(out_indices),
+                            'count': 0,
+                        })
+
+                    for i in range(1, len(face_vertices) - 1):
+                        tri_indices = [face_vertices[0], face_vertices[i], face_vertices[i + 1]]
+                        out_indices.extend(tri_indices)
+                        self.material_groups[-1]['count'] += len(tri_indices)
         
-        if not vertices:
+        if not positions or not out_vertices:
             self._create_default_cube()
             return
             
-        self.vertices = np.array(vertices, dtype=np.float32)
-        
-        indices = []
-        for face in faces:
-            if len(face) == 3:
-                indices.extend(face)
-            elif len(face) == 4:
-                indices.extend([face[0], face[1], face[2]])
-                indices.extend([face[2], face[1], face[3]])
-        
-        self.indices = np.array(indices, dtype=np.int32)
-        
-        self._generate_normals()
-        
-        if len(colors) == len(vertices):
-            self.colors = np.array(colors, dtype=np.float32)
+        self.vertices = np.array(out_vertices, dtype=np.float32)
+        self.indices = np.array(out_indices, dtype=np.int32)
+        self.texcoords = np.array(out_texcoords, dtype=np.float32)
+        self.normals = np.array(out_normals, dtype=np.float32)
+
+        if len(out_colors) == len(out_vertices):
+            self.colors = np.array(out_colors, dtype=np.float32)
         else:
             self._generate_colors()
+
+        if len(normals) == 0 or not np.any(self.normals):
+            self._generate_normals()
+
+        for material_name in used_materials:
+            texture_path = materials.get(material_name, {}).get('map_kd')
+            if texture_path and os.path.exists(texture_path):
+                self.material_texture_paths[material_name] = texture_path
+                if self.material_texture_path is None:
+                    self.material_texture_path = texture_path
+
+        self.material_groups = [group for group in self.material_groups if group['count'] > 0]
         
         self._normalize_model()
     
@@ -309,34 +408,64 @@ class ModelLoader(BaseShape):
         self.shader = Shader(self.vert_shader, self.frag_shader)
         self.uma = UManager(self.shader)
         self.lighting = LightingManager(self.uma)
+        self._load_material_textures()
         
         return self
-        
-    def set_texture(self, filepath):
-        if not filepath:
-            self.use_texture = False
-            return
+
+    def _load_texture_file(self, filepath):
         try:
             img = Image.open(filepath).convert("RGBA")
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            #  img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
-            
-            if self.texture_id is None:
-                self.texture_id = GL.glGenTextures(1)
-                
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+
+            texture_id = GL.glGenTextures(1)
+
+            GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
             GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
             GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
-            
-            self.use_texture = True
-            print(f"Đã load texture thành công cho Model: {filepath}")
+            return texture_id
         except Exception as e:
             print(f"Lỗi load texture: {e}")
-            self.use_texture = False
+            return None
+
+    def _load_material_textures(self):
+        for texture_id in self.material_texture_ids.values():
+            GL.glDeleteTextures(1, [texture_id])
+        self.material_texture_ids = {}
+
+        for material_name, texture_path in self.material_texture_paths.items():
+            texture_id = self._load_texture_file(texture_path)
+            if texture_id is not None:
+                self.material_texture_ids[material_name] = texture_id
+
+        if self.material_texture_ids:
+            self.use_texture = True
+
+    def set_texture(self, filepath):
+        if not filepath:
+            self.manual_texture_override = False
+            if self.texture_id is not None:
+                GL.glDeleteTextures(1, [self.texture_id])
+                self.texture_id = None
+            self.use_texture = bool(self.material_texture_ids)
+            return
+
+        texture_id = self._load_texture_file(filepath)
+        if texture_id is None:
+            self.use_texture = bool(self.material_texture_ids)
+            return
+
+        if self.texture_id is not None:
+            GL.glDeleteTextures(1, [self.texture_id])
+
+        self.texture_id = texture_id
+        self.manual_texture_override = True
+        self.use_texture = True
+        print(f"Đã load texture thành công cho Model: {filepath}")
 
     def draw(self, projection, view, model):
         GL.glUseProgram(self.shader.render_idx)
@@ -368,11 +497,9 @@ class ModelLoader(BaseShape):
         loc_mode = GL.glGetUniformLocation(self.shader.render_idx, "u_render_mode")
         if loc_mode != -1: GL.glUniform1i(loc_mode, self.render_mode)
         
-        if self.use_texture and self.texture_id is not None:
-            GL.glActiveTexture(GL.GL_TEXTURE0)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
-            loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
-            if loc_sampler != -1: GL.glUniform1i(loc_sampler, 0)
+        loc_sampler = GL.glGetUniformLocation(self.shader.render_idx, "u_texture")
+        if loc_sampler != -1:
+            GL.glUniform1i(loc_sampler, 0)
         
         # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
         lights = getattr(self, 'scene_lights', [])
@@ -388,7 +515,33 @@ class ModelLoader(BaseShape):
         self.vao.activate()
         # Tự động nhận diện vẽ theo Indices hoặc Arrays
         if hasattr(self, 'indices') and self.indices is not None:
-            GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
+            if self.use_texture and not self.manual_texture_override and self.material_groups and self.material_texture_ids:
+                for group in self.material_groups:
+                    texture_id = self.material_texture_ids.get(group['material'])
+                    if loc_tex != -1:
+                        GL.glUniform1i(loc_tex, 1 if texture_id is not None else 0)
+                    if texture_id is not None:
+                        GL.glActiveTexture(GL.GL_TEXTURE0)
+                        GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
+                    else:
+                        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+                    GL.glDrawElements(
+                        GL.GL_TRIANGLES,
+                        group['count'],
+                        GL.GL_UNSIGNED_INT,
+                        ctypes.c_void_p(group['start'] * np.dtype(np.uint32).itemsize),
+                    )
+            else:
+                active_texture_id = self.texture_id
+                if active_texture_id is None and self.material_texture_ids:
+                    active_texture_id = next(iter(self.material_texture_ids.values()))
+
+                if loc_tex != -1:
+                    GL.glUniform1i(loc_tex, 1 if self.use_texture and active_texture_id is not None else 0)
+                if self.use_texture and active_texture_id is not None:
+                    GL.glActiveTexture(GL.GL_TEXTURE0)
+                    GL.glBindTexture(GL.GL_TEXTURE_2D, active_texture_id)
+                GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
         else:
             GL.glDrawArrays(GL.GL_TRIANGLES, 0, self.vertices.shape[0])
         self.vao.deactivate()
@@ -414,3 +567,5 @@ class ModelLoader(BaseShape):
         if hasattr(self, 'shader'): self.shader.delete()
         if hasattr(self, 'texture_id') and self.texture_id is not None:
             GL.glDeleteTextures(1, [self.texture_id])
+        for texture_id in self.material_texture_ids.values():
+            GL.glDeleteTextures(1, [texture_id])

@@ -41,6 +41,7 @@ class MathematicalSurface(BaseShape):
         self.resolution = resolution
         
         self._generate_surface()
+        self._generate_texcoords()
         
     def _generate_surface(self):
         """Generate vertices, indices, normals and colors for the mathematical surface"""
@@ -131,6 +132,15 @@ class MathematicalSurface(BaseShape):
                 indices.extend([v2, v1, v3])
         
         self.indices = np.array(indices, dtype=np.int32)
+
+    def _generate_texcoords(self):
+        texcoords = []
+        for i in range(self.resolution):
+            v = i / max(self.resolution - 1, 1)
+            for j in range(self.resolution):
+                u = j / max(self.resolution - 1, 1)
+                texcoords.append([u, v])
+        self.texcoords = np.array(texcoords, dtype=np.float32)
         
     def setup(self):
         """Setup buffers and shader"""
@@ -141,13 +151,43 @@ class MathematicalSurface(BaseShape):
         self.vao.add_vbo(1, self.colors, ncomponents=3, stride=0, offset=None)
         
         self.vao.add_vbo(2, self.normals, ncomponents=3, stride=0, offset=None)
+        self.vao.add_vbo(3, self.texcoords, ncomponents=2, stride=0, offset=None)
         
         self.vao.add_ebo(self.indices)
         
         self.shader = Shader(self.vert_shader, self.frag_shader)
         self.uma = UManager(self.shader)
+        self.lighting = LightingManager(self.uma)
         
         return self
+
+    def set_texture(self, filepath):
+        if not filepath:
+            self.use_texture = False
+            return
+        try:
+            from PIL import Image
+
+            img = Image.open(filepath).convert("RGBA")
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img_data = img.tobytes("raw", "RGBA", 0, -1)
+
+            if self.texture_id is None:
+                self.texture_id = GL.glGenTextures(1)
+
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+
+            self.use_texture = True
+            print(f"Đã load texture thành công cho MathematicalSurface: {filepath}")
+        except Exception as e:
+            print(f"Lỗi load texture cho MathematicalSurface: {e}")
+            self.use_texture = False
 
     def draw(self, projection, view, model):
         """Draw the mathematical surface"""
@@ -204,12 +244,9 @@ class MathematicalSurface(BaseShape):
     
     def set_color(self, color):
         """Set color for the mathematical surface - override BaseShape method"""
-        if self.use_custom_color:
-            # Use custom color
-            self.colors = np.array([color] * len(self.vertices), dtype=np.float32)
-        else:
-            # Use original auto-generated colors (height-based)
-            self.colors = self.original_colors.copy()
+        self.use_custom_color = True
+        self.colors = np.array([color[:3]] * len(self.vertices), dtype=np.float32)
+        self.flat_color = np.array(color[:3], dtype=np.float32)
         
         # Re-setup the VBO to update colors
         self.vao.activate()
@@ -225,6 +262,15 @@ class MathematicalSurface(BaseShape):
     def set_color_mode(self, use_custom_color):
         """Toggle between auto-color and custom color mode"""
         self.use_custom_color = use_custom_color
+
+    def restore_auto_colors(self):
+        self.use_custom_color = False
+        self.colors = self.original_colors.copy()
+        self.vao.activate()
+        buffer_idx = self.vao.vbo[1]
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer_idx)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, self.colors, GL.GL_STATIC_DRAW)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
 
     def set_solid_color(self, color):
         """Set solid color for the mathematical surface"""
@@ -243,3 +289,5 @@ class MathematicalSurface(BaseShape):
             self.vao.delete()
         if hasattr(self, 'shader'):
             self.shader.delete()
+        if hasattr(self, 'texture_id') and self.texture_id is not None:
+            GL.glDeleteTextures(1, [self.texture_id])

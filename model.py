@@ -270,6 +270,28 @@ class AppModel:
         if obj_type in ["mesh", "light", "camera"]:
             self.object_type = obj_type
 
+    def _sync_scene_object_visuals(self, scene_obj) -> None:
+        drawable = getattr(scene_obj, 'drawable', None)
+        if drawable is None:
+            return
+
+        if hasattr(drawable, 'render_mode') and hasattr(scene_obj, 'shader'):
+            drawable.render_mode = scene_obj.shader
+
+        if hasattr(scene_obj, 'color') and hasattr(drawable, 'set_color'):
+            if getattr(scene_obj, 'shader', 0) == 3 and hasattr(drawable, 'restore_auto_colors'):
+                drawable.restore_auto_colors()
+            else:
+                drawable.set_color(scene_obj.color[:3])
+
+        if getattr(scene_obj, 'texture_filename', "") and hasattr(drawable, 'set_texture'):
+            drawable.set_texture(scene_obj.texture_filename)
+
+        if hasattr(drawable, 'use_flat_color') and getattr(self, 'global_flat_color_enabled', False):
+            drawable.use_flat_color = True
+            if hasattr(drawable, 'set_solid_color') and hasattr(scene_obj, 'color'):
+                drawable.set_solid_color(scene_obj.color[:3])
+
     def add_hierarchy_object(self, name: str, obj_type: str, shape_name: str = "Cube") -> None:
         from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
         import numpy as np
@@ -351,8 +373,8 @@ class AppModel:
         elif obj_type == "math":
             new_obj = GameObjectMath(name)
             # Create MathematicalSurface drawable
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             # Import MathematicalSurface
             import sys
@@ -398,6 +420,11 @@ class AppModel:
         else:
             new_obj = GameObject(name)
             new_obj.drawable = None
+
+        if getattr(new_obj, 'drawable', None) is not None:
+            if hasattr(new_obj.drawable, 'render_mode'):
+                new_obj.shader = new_obj.drawable.render_mode
+            self._sync_scene_object_visuals(new_obj)
             
         # 2. Thêm vào Scene
         self.scene.add_object(new_obj)
@@ -532,8 +559,8 @@ class AppModel:
         # Recreate the drawable with updated parameters
         if obj_type == "math":
             # Create new MathematicalSurface with updated function
-            vert_shader = "./shaders/color_interp.vert"
-            frag_shader = "./shaders/color_interp.frag"
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
             
             import sys
             import os
@@ -563,6 +590,7 @@ class AppModel:
             
             scene_obj.drawable = MathematicalSurface(vert_shader, frag_shader, func=func)
             scene_obj.drawable.setup()
+            self._sync_scene_object_visuals(scene_obj)
             print("[DEBUG] MathematicalSurface recreated")
             
         elif obj_type == "custom_model":
@@ -580,6 +608,7 @@ class AppModel:
             print(f"[DEBUG] Creating ModelLoader with filename: {self.model_filename}")
             scene_obj.drawable = ModelLoader(vert_shader, frag_shader, filename=self.model_filename)
             scene_obj.drawable.setup()
+            self._sync_scene_object_visuals(scene_obj)
             print("[DEBUG] ModelLoader recreated")
         else:
             print(f"[DEBUG] Unknown object type: {obj_type}")
