@@ -53,6 +53,11 @@ class SGDPanel:
             if changed_batch:
                 model.sgd_batch_size = max(1, min(1000, new_batch))
                 actions['sgd_param_changed'] = True
+
+            changed_steps, new_steps = imgui.drag_int("Max Steps", model.sgd_max_iterations, 10, 10, 100000)
+            if changed_steps:
+                model.sgd_max_iterations = max(10, min(100000, new_steps))
+                actions['sgd_param_changed'] = True
             
             changed_speed, new_speed = imgui.drag_int("Speed (steps/frame)", model.sgd_simulation_speed, 1, 1, 200)
             if changed_speed:
@@ -109,8 +114,12 @@ class SGDPanel:
         
         if imgui.collapsing_header("Simulation", imgui.TREE_NODE_DEFAULT_OPEN):
             imgui.text(f"Steps: {model.sgd_step_count}")
+            imgui.text(f"Max: {model.sgd_max_iterations}")
+            status = "Running" if model.sgd_simulation_running else "Paused"
+            imgui.text(f"Status: {status}")
             
-            if imgui.button("Start/Stop", 140, 30):
+            toggle_label = "Pause" if model.sgd_simulation_running else "Start"
+            if imgui.button(toggle_label, 140, 30):
                 model.sgd_simulation_running = not model.sgd_simulation_running
                 actions['sgd_toggle_simulation'] = True
             
@@ -118,6 +127,10 @@ class SGDPanel:
             if imgui.button("Reset", 140, 30):
                 model.reset_sgd()
                 actions['sgd_reset'] = True
+
+            changed_traj, new_traj = imgui.checkbox("Show Trajectory", model.sgd_show_trajectory)
+            if changed_traj:
+                model.sgd_show_trajectory = new_traj
         
         if imgui.collapsing_header("Statistics", imgui.TREE_NODE_DEFAULT_OPEN):
             stats = model.get_sgd_stats()

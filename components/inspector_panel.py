@@ -164,10 +164,10 @@ class InspectorPanel:
                         # Padding giữa các sections
                         imgui.spacing()
 
-                        # 4. CÔNG TẮC MÀU PHẲNG (Yêu cầu A)
-                        imgui.text("Flat Color"); imgui.next_column()
+                        # 4. CÔNG TẮC FLAT SHADING (Yêu cầu A)
+                        imgui.text("Flat Shading"); imgui.next_column()
                         current_flat = getattr(target.drawable, 'use_flat_color', False)
-                        changed_flat, new_flat = imgui.checkbox(f"Override with Flat Color##flat_{target.id}", current_flat)
+                        changed_flat, new_flat = imgui.checkbox(f"Use Flat Shading##flat_{target.id}", current_flat)
                         if changed_flat:
                             actions['update_attr'] = {"obj": target.drawable, "attr": "use_flat_color", "val": new_flat}
                             if new_flat:

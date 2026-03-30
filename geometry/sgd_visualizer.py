@@ -53,6 +53,7 @@ class SGDVisualizer:
         self.surface_y_scale = 1.0
         self.surface_x_offset = 0.0
         self.surface_y_offset = 0.0
+        self.base_plane_z = -2.02
         
         self._generate_surface()
     
@@ -160,6 +161,8 @@ class SGDVisualizer:
                 np.random.uniform(self.x_range[0], self.x_range[1]),
                 np.random.uniform(self.y_range[0], self.y_range[1])
             ]
+
+        seed = sum(ord(ch) for ch in f"{name}:{optimizer_type}")
         
         self.optimizers[name] = {
             'type': optimizer_type,
@@ -176,9 +179,32 @@ class SGDVisualizer:
             'beta1': 0.9,
             'beta2': 0.999,
             'epsilon': 1e-8,
+            'rng': np.random.default_rng(seed),
         }
         
         self.trajectories[name] = []
+
+    def _estimate_stochastic_gradient(self, opt, grad, batch_size, mode):
+        if mode == 'GD':
+            return grad
+
+        batch = max(1, int(batch_size))
+        rng = opt['rng']
+
+        if mode == 'SGD':
+            scale = 0.18
+            noise = rng.normal(0.0, scale, size=grad.shape).astype(np.float32)
+            return grad * (1.0 + noise)
+
+        if mode == 'MiniBatch':
+            scale = 0.25 / np.sqrt(batch)
+            samples = []
+            for _ in range(batch):
+                noise = rng.normal(0.0, scale, size=grad.shape).astype(np.float32)
+                samples.append(grad * (1.0 + noise))
+            return np.mean(samples, axis=0).astype(np.float32)
+
+        return grad
     
     def step_optimizer(self, name, learning_rate, momentum=0.0, batch_size=1):
         if name not in self.optimizers:
@@ -187,40 +213,46 @@ class SGDVisualizer:
         opt = self.optimizers[name]
         x, y = opt['position']
         
-        grad = self.loss_func.gradient(x, y)
-        opt['gradient_mag'] = np.linalg.norm(grad)
+        grad = self.loss_func.gradient(x, y).astype(np.float32)
+        effective_grad = grad
         
         if opt['type'] == 'GD':
-            opt['position'] = opt['position'] - learning_rate * grad
+            effective_grad = grad
+            opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'SGD':
-            opt['position'] = opt['position'] - learning_rate * grad
+            effective_grad = self._estimate_stochastic_gradient(opt, grad, batch_size, 'SGD')
+            opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'MiniBatch':
-            grad_est = grad
-            opt['position'] = opt['position'] - learning_rate * grad_est
+            effective_grad = self._estimate_stochastic_gradient(opt, grad, batch_size, 'MiniBatch')
+            opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'Momentum':
-            opt['momentum_buffer'] = momentum * opt['momentum_buffer'] + grad
+            effective_grad = grad
+            opt['momentum_buffer'] = momentum * opt['momentum_buffer'] + effective_grad
             opt['position'] = opt['position'] - learning_rate * opt['momentum_buffer']
             
         elif opt['type'] == 'Nesterov':
             nesterov_lr = learning_rate * 0.5  # Slow down Nesterov
             lookahead_pos = opt['position'] - momentum * opt['momentum_buffer']
-            nesterov_grad = self.loss_func.gradient(lookahead_pos[0], lookahead_pos[1])
-            opt['momentum_buffer'] = momentum * opt['momentum_buffer'] + nesterov_grad
+            effective_grad = self.loss_func.gradient(lookahead_pos[0], lookahead_pos[1]).astype(np.float32)
+            opt['momentum_buffer'] = momentum * opt['momentum_buffer'] + effective_grad
             opt['position'] = opt['position'] - nesterov_lr * opt['momentum_buffer']
             
         elif opt['type'] == 'Adam':
             t = opt['step'] + 1
-            opt['adam_m'] = opt['beta1'] * opt['adam_m'] + (1 - opt['beta1']) * grad
-            opt['adam_v'] = opt['beta2'] * opt['adam_v'] + (1 - opt['beta2']) * (grad ** 2)
+            effective_grad = grad
+            opt['adam_m'] = opt['beta1'] * opt['adam_m'] + (1 - opt['beta1']) * effective_grad
+            opt['adam_v'] = opt['beta2'] * opt['adam_v'] + (1 - opt['beta2']) * (effective_grad ** 2)
             
             m_hat = opt['adam_m'] / (1 - opt['beta1'] ** t)
             v_hat = opt['adam_v'] / (1 - opt['beta2'] ** t)
             
             update = learning_rate * m_hat / (np.sqrt(v_hat) + opt['epsilon'])
             opt['position'] = opt['position'] - update
+
+        opt['gradient_mag'] = float(np.linalg.norm(effective_grad))
         
         # Clip position to domain bounds
         opt['position'][0] = np.clip(opt['position'][0], self.x_range[0], self.x_range[1])
@@ -253,7 +285,7 @@ class SGDVisualizer:
         
         return [dx, dy, dz]
     
-    def draw(self, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0):
+    def draw(self, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0, show_trajectory=True):
         GL.glUseProgram(self.surface_shader.render_idx)
         
         modelview = view @ np.eye(4, dtype=np.float32)
@@ -278,10 +310,12 @@ class SGDVisualizer:
             dx, dy, dz = self.get_draw_coords(pos[0], pos[1])
             
             color = self.optimizer_colors.get(opt['type'], [1, 0, 1])
+            self._draw_drop_line(dx, dy, dz, color, projection, view)
             self._draw_sphere(dx, dy, dz, color, projection, view, wireframe_mode, display_mode, cam_far)
             
-            if len(opt['history']) >= 2:
+            if show_trajectory and len(opt['history']) >= 2:
                 self._draw_trail(opt['history'], opt['type'], projection, view)
+                self._draw_trail_projection(opt['history'], opt['type'], projection, view)
     
     def _draw_sphere(self, x, y, z, color, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0):
         lat_div, long_div = 12, 12
@@ -374,6 +408,59 @@ class SGDVisualizer:
             
             trail_vao.activate()
             GL.glDrawArrays(GL.GL_LINES, 0, len(vertices))
+
+    def _draw_trail_projection(self, history, opt_type, projection, view):
+        if len(history) < 2:
+            return
+
+        color = np.array(self.optimizer_colors.get(opt_type, [1, 1, 1]), dtype=np.float32) * 0.55
+        vertices = []
+        colors = []
+
+        for i in range(len(history) - 1):
+            p1 = history[i]
+            p2 = history[i + 1]
+
+            x1, y1, _ = self.get_draw_coords(p1[0], p1[1])
+            x2, y2, _ = self.get_draw_coords(p2[0], p2[1])
+
+            vertices.append([x1, y1, self.base_plane_z])
+            vertices.append([x2, y2, self.base_plane_z])
+            colors.append(color)
+            colors.append(color)
+
+        if vertices:
+            trail_vao = VAO()
+            trail_vao.add_vbo(0, np.array(vertices, dtype=np.float32), ncomponents=3, stride=0, offset=None)
+            trail_vao.add_vbo(1, np.array(colors, dtype=np.float32), ncomponents=3, stride=0, offset=None)
+
+            GL.glUseProgram(self.trail_shader.render_idx)
+            modelview = view @ np.eye(4, dtype=np.float32)
+            self.trail_uma.upload_uniform_matrix4fv(projection, 'projection', True)
+            self.trail_uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
+
+            trail_vao.activate()
+            GL.glDrawArrays(GL.GL_LINES, 0, len(vertices))
+
+    def _draw_drop_line(self, x, y, z, color, projection, view):
+        line_color = np.array(color, dtype=np.float32) * 0.7
+        vertices = np.array([
+            [x, y, self.base_plane_z],
+            [x, y, z],
+        ], dtype=np.float32)
+        colors = np.array([line_color, line_color], dtype=np.float32)
+
+        line_vao = VAO()
+        line_vao.add_vbo(0, vertices, ncomponents=3, stride=0, offset=None)
+        line_vao.add_vbo(1, colors, ncomponents=3, stride=0, offset=None)
+
+        GL.glUseProgram(self.trail_shader.render_idx)
+        modelview = view @ np.eye(4, dtype=np.float32)
+        self.trail_uma.upload_uniform_matrix4fv(projection, 'projection', True)
+        self.trail_uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
+
+        line_vao.activate()
+        GL.glDrawArrays(GL.GL_LINES, 0, 2)
     
     def reset_optimizer(self, name, initial_pos=None):
         if name not in self.optimizers:
