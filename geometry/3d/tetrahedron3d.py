@@ -77,7 +77,7 @@ class Tetrahedron(BaseShape):
             return
         try:
             img = Image.open(filepath).convert("RGBA")
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            #img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
             
             if self.texture_id is None:
