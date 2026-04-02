@@ -93,7 +93,7 @@ class Arrow(BaseShape):
             # Mở file ảnh và chuyển sang định dạng RGBA
             img = Image.open(filepath).convert("RGBA")
             # Lật ảnh theo chiều dọc (OpenGL yêu cầu origin ở dưới cùng)
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            #img = img.transpose(Image.FLIP_TOP_BOTTOM)
             # Chuyển ảnh sang raw bytes
             # "raw" = lấy dữ liệu pixel thô, "RGBA" = định dạng màu, 0 = bước nhảy, -1 = số hàng
             img_data = img.tobytes("raw", "RGBA", 0, -1)

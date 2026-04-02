@@ -483,7 +483,7 @@ class ModelLoader(BaseShape):
     def _load_texture_file(self, filepath):
         try:
             img = Image.open(filepath).convert("RGBA")
-            #  img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            # #img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
 
             texture_id = GL.glGenTextures(1)
