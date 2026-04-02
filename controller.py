@@ -11,6 +11,10 @@ from libs.buffer import VAO, UManager
 
 class AppController:
     def __init__(self, model: Optional[AppModel] = None, view: Optional[Viewer] = None) -> None:
+        # Controller là lớp đứng giữa Model và Viewer:
+        # - nhận input từ viewer
+        # - cập nhật state vào model
+        # - quyết định khi nào cần reload shape, đổi shader, đổi camera...
         self.view = view or Viewer()
         self.model = model or AppModel()
         
@@ -26,11 +30,13 @@ class AppController:
         self.view.key_callback = self.on_key
 
     def on_scroll(self, window, xoffset, yoffset):
+        # Scroll chuột được quy đổi thành zoom của camera trackball.
         width, height = glfw.get_window_size(window)
         self.view.trackball.zoom(yoffset, max(width, height))
 
     def on_mouse_move(self, window, xpos, ypos):
         import imgui
+        # Nếu chuột đang tương tác với ImGui thì không được kéo camera / object nữa.
         if imgui.get_io().want_capture_mouse:
             self.view.last_mouse_pos = (xpos, ypos)
             return
@@ -53,6 +59,7 @@ class AppController:
                     
             # 2. Nếu chọn ROTATE (Xoay) -> Xoay góc Camera
             elif tool == 'rotate' or tool == 'select':
+                # Ở select/rotate, kéo chuột sẽ quay góc nhìn quanh scene.
                 self.view.trackball.drag(self.view.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
                 
             # 3. Nếu chọn MOVE (Di chuyển) -> Dịch chuyển Camera 3 trục (X,Y,Z)
@@ -88,6 +95,9 @@ class AppController:
         # Dùng PRESS (nhấn) và REPEAT (giữ phím) để camera trượt mượt mà
         if action == glfw.PRESS or action == glfw.REPEAT:
             if key == glfw.KEY_W:
+                # W có 2 nghĩa:
+                # - nếu đang ở SGD thì đổi render mode của surface loss
+                # - nếu không thì đổi kiểu vẽ fill / wireframe / point
                 if self.model.selected_category == 4:
                     self.model.sgd_wireframe_mode = (self.model.sgd_wireframe_mode + 1) % 3
                 else:
@@ -95,6 +105,7 @@ class AppController:
             elif key == glfw.KEY_Q:
                 glfw.set_window_should_close(window, True)
             elif key == glfw.KEY_S:
+                # S dùng để chuyển qua lại các shader minh họa.
                 self.model.set_shader((self.model.selected_shader + 1) % 4)
             elif key == glfw.KEY_G:
                 self.coord_system.toggle_visibility()
@@ -174,6 +185,9 @@ class AppController:
 
     def _process_ui_actions(self, actions):
         """Process UI actions and update model accordingly"""
+        # Toàn bộ panel UI không sửa state trực tiếp,
+        # mà trả về một dictionary actions. Controller đọc actions này
+        # và quyết định phải cập nhật model/view như thế nào.
         if 'category_changed' in actions:
             new_cat = actions['category_changed']
             self.model.set_category(new_cat)
@@ -199,11 +213,14 @@ class AppController:
             self.coord_system.toggle_visibility()
         
         if 'math_function_changed' in actions:
+            # Khi người dùng đổi công thức toán học, nếu đang preview Math Surface
+            # thì reload lại mesh để tạo bề mặt mới từ f(x, y).
             self.model.set_math_function(actions['math_function_changed'])
             if (self.model.selected_category == 2 and self.model.selected_idx == 0):
                 self.model.reload_current_shape()
         
         if 'model_filename_changed' in actions:
+            # Tương tự Math Surface, đổi file model thì phải load lại model preview.
             self.model.set_model_filename(actions['model_filename_changed'])
             if (self.model.selected_category == 3 and self.model.selected_idx == 0):
                 self.model.reload_current_shape()

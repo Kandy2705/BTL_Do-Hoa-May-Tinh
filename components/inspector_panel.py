@@ -5,6 +5,8 @@ from core.GameObject import Type
 class InspectorPanel:
     @staticmethod
     def draw(model, cube_texture_id):
+        # Inspector không sửa scene trực tiếp.
+        # Nó chỉ dựng UI và trả về một dictionary actions để controller xử lý.
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         
@@ -22,6 +24,7 @@ class InspectorPanel:
         selected_objects = model.scene.selected_objects
         
         if not is_normal_mode:
+            # Ở các mode preview (2D, 3D, Math, File, SGD), inspector chỉ hiển thị thông tin cơ bản.
             # Non-Normal mode - show simplified inspector
             imgui.text_colored("View Only Mode", 0.7, 0.7, 0.7)
             imgui.separator()
@@ -39,7 +42,7 @@ class InspectorPanel:
             
             # Show shape info if applicable
             if hasattr(model, 'menu_options') and model.selected_category < 5:
-                options = model.menu_options
+                options = model.menu_options()
                 if model.selected_idx >= 0 and model.selected_idx < len(options):
                     imgui.text(f"Shape: {options[model.selected_idx]}")
             
@@ -66,7 +69,7 @@ class InspectorPanel:
             changed_name, new_name = imgui.input_text("##name", target.name, 256)
             if changed_name: target.name = new_name
             
-            # --- COMPONENT: TRANSFORM (Luôn có) ---
+            # Transform là component cơ bản nhất: object nào cũng có vị trí, xoay, scale.
             if imgui.collapsing_header("Transform", imgui.TREE_NODE_DEFAULT_OPEN):
                 imgui.columns(2, "trans_layout", False)
                 imgui.set_column_width(0, 80)
@@ -95,7 +98,8 @@ class InspectorPanel:
             # DYNAMIC COMPONENTS (Phân biệt bằng Enum)
             # =========================================================
             
-            # --- MESH RENDERER (Cho OBJ, MATH, DEFAULT) ---
+            # Mesh Renderer chỉ áp dụng cho object có thể vẽ được:
+            # mesh thường, mathematical surface, custom model...
             if target.type not in [Type.CAMERA, Type.LIGHT]:
                 if imgui.collapsing_header("Mesh Renderer", imgui.TREE_NODE_DEFAULT_OPEN):
                     imgui.columns(2, "mesh_cols", False)
@@ -103,7 +107,7 @@ class InspectorPanel:
                     
                     imgui.text("Shader"); imgui.next_column()
                     imgui.push_item_width(-1)
-                    changed_shader, new_shader = imgui.combo(f"##shader_{target.id}", target.shader, model.shader_names)
+                    changed_shader, new_shader = imgui.combo(f"##shader_{target.id}", target.shader, model.shader_names())
                     if changed_shader: 
                         actions['update_attr'] = {"obj": target, "attr": "shader", "val": new_shader}
                         

@@ -30,7 +30,7 @@ class Trapezoid(BaseShape):
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.use_texture = False
         self.texture_id = None
-        self.render_mode = 0  # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
+        self.render_mode = 2   # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
 
         self.vertices = np.array(self.vertices, dtype=np.float32)
 

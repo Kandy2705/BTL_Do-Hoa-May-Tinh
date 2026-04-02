@@ -1,13 +1,16 @@
 #version 330 core
 
-precision mediump float;
+precision mediump float;  // Độ chính xác trung bình cho floating point
 
-// Receiving interpolated color from vertex shader
-in vec3 colorInterp;
+// Input từ vertex shader (đã được nội suy giữa các vertices)
+in vec3 colorInterp;  // Màu đã tính lighting ở vertex shader
 
+// Output màu cuối cùng cho screen
 out vec4 out_color;
 
 void main() {
-  // Simply output the interpolated color (lighting was computed per-vertex)
-  out_color = vec4(colorInterp, 1.0);
+  // Gouraud shading: lighting đã được tính ở vertex shader
+  // Fragment shader chỉ cần output màu đã nội suy
+  // → Mượt hơn flat shading nhưng ít chính xác hơn Phong shading
+  out_color = vec4(colorInterp, 1.0);  // Thêm alpha = 1.0
 }

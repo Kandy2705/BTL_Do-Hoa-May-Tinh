@@ -24,7 +24,8 @@ class ModelLoader(BaseShape):
         self.frag_shader = frag_shader
         self.filename = filename
         
-        # --- CÁC BIẾN TRẠNG THÁI CHO SIÊU SHADER ---
+        # Đây là các state để object model có thể dùng chung standard shader:
+        # màu, flat shading, texture, nhiều material texture...
         self.use_flat_color = False
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.use_texture = False
@@ -62,6 +63,7 @@ class ModelLoader(BaseShape):
         self._generate_texcoords()
     
     def load_model(self, filename):
+        # Hàm tổng quát: nhìn đuôi file để quyết định nên gọi parser OBJ hay PLY.
         if not os.path.exists(filename):
             self._create_default_cube()
             return
@@ -92,34 +94,52 @@ class ModelLoader(BaseShape):
         return idx - 1 if idx > 0 else count + idx
 
     def _load_mtl_file(self, mtl_path):
-        materials = {}
-        current_material = None
+        # Đọc file .mtl để lấy thông tin material, chủ yếu là:
+        # - Kd: màu diffuse (màu cơ bản của vật liệu)
+        # - map_Kd: texture diffuse (ảnh bề mặt của vật liệu)
+        materials = {}          # Dictionary lưu tất cả materials
+        current_material = None # Material hiện tại đang parse
 
         if not os.path.exists(mtl_path):
-            return materials
+            return materials    # Return empty dict nếu file không tồn tại
 
         with open(mtl_path, 'r', encoding='utf-8', errors='ignore') as mtl_file:
             for line in mtl_file:
                 line = line.strip()
                 if not line or line.startswith('#'):
-                    continue
+                    continue    # Bỏ qua dòng trống và comment
 
                 parts = line.split()
-                key = parts[0]
+                key = parts[0]    # Lệnh đầu tiên (newmtl, Kd, map_Kd)
 
+                # Tạo material mới
                 if key == 'newmtl' and len(parts) > 1:
-                    current_material = " ".join(parts[1:])
-                    materials[current_material] = {}
+                    current_material = " ".join(parts[1:])  # Tên material
+                    materials[current_material] = {}       # Khởi tạo dict cho material
+                
+                # Lấy màu diffuse (RGB)
                 elif current_material is not None and key == 'Kd' and len(parts) >= 4:
-                    materials[current_material]['kd'] = [float(parts[1]), float(parts[2]), float(parts[3])]
+                    materials[current_material]['kd'] = [
+                        float(parts[1]),  # Red (0-1)
+                        float(parts[2]),  # Green (0-1)
+                        float(parts[3])   # Blue (0-1)
+                    ]
+                
+                # Lấy đường dẫn texture
                 elif current_material is not None and key == 'map_Kd' and len(parts) > 1:
-                    texture_rel = " ".join(parts[1:])
+                    texture_rel = " ".join(parts[1:])  # Tên file texture
+                    # Chuyển đường dẫn tương đối thành tuyệt đối
                     texture_path = texture_rel if os.path.isabs(texture_rel) else os.path.join(os.path.dirname(mtl_path), texture_rel)
                     materials[current_material]['map_kd'] = os.path.normpath(texture_path)
 
         return materials
     
     def _load_obj(self, filename):
+        # Parser OBJ này đọc:
+        # - v  : vị trí đỉnh
+        # - vt : UV
+        # - vn : normal
+        # - mtllib / usemtl : vật liệu và texture tương ứng
         positions = []
         texcoords = []
         normals = []
@@ -159,11 +179,11 @@ class ModelLoader(BaseShape):
                     texcoords.append([u, v])
                 elif parts[0] == 'vn':
                     normals.append([float(x) for x in parts[1:4]])
-                elif parts[0] == 'mtllib':
+                elif parts[0] == 'mtllib': # vd: Sử dụng file cube.mtl
                     material_name = " ".join(parts[1:])
                     mtl_path = material_name if os.path.isabs(material_name) else os.path.join(obj_dir, material_name)
                     materials.update(self._load_mtl_file(os.path.normpath(mtl_path)))
-                elif parts[0] == 'usemtl':
+                elif parts[0] == 'usemtl': # vd: Sử dụng Material (file.pnd)
                     current_material = " ".join(parts[1:]) if len(parts) > 1 else None
                     if current_material and current_material not in used_materials:
                         used_materials.append(current_material)
@@ -188,6 +208,8 @@ class ModelLoader(BaseShape):
 
                         face_vertices.append(vertex_map[key])
 
+                    # Mỗi lần material đổi, ta mở một "group" mới.
+                    # Lúc draw sẽ bind đúng texture cho từng group này.
                     if not self.material_groups or self.material_groups[-1]['material'] != current_material:
                         self.material_groups.append({
                             'material': current_material,
@@ -229,128 +251,162 @@ class ModelLoader(BaseShape):
         self._normalize_model()
     
     def _load_ply(self, filename):
+        """Load PLY file format (Stanford Polygon Library)"""
         import struct
         vertices = []
         faces = []
         colors = []
         normals = []
         
+        # Đọc header để biết thông tin file
         with open(filename, 'rb') as f:
             header_lines = []
             while True:
                 line = f.readline().decode('utf-8', errors='ignore').strip()
                 header_lines.append(line)
-                if line == 'end_header': break
+                if line == 'end_header': break  # Kết thúc header
                     
-            format_type = 'ascii'
+            # Phân tích header
+            format_type = 'ascii'  # Mặc định là ASCII
             vertex_count = 0
             face_count = 0
-            vertex_props = [] 
+            vertex_props = []  # Các thuộc tính của vertex
             
-            current_element = None
+            current_element = None  # Element hiện tại đang parse (vertex/face)
             for line in header_lines:
                 if line.startswith('format'):
-                    format_type = line.split()[1] 
+                    # Lấy định dạng file: ascii/binary_little_endian/binary_big_endian
+                    format_type = line.split()[1]  # Ví dụ: "ascii" hoặc "binary_little_endian"
                 elif line.startswith('element'):
+                    # Định nghĩa element type và số lượng
                     parts = line.split()
-                    current_element = parts[1]
+                    current_element = parts[1]  # "vertex" hoặc "face"
                     if current_element == 'vertex':
-                        vertex_count = int(parts[2])
+                        vertex_count = int(parts[2])  # Số lượng vertices: element vertex 8
                     elif current_element == 'face':
-                        face_count = int(parts[2])
+                        face_count = int(parts[2])    # Số lượng faces: element face 12
                 elif line.startswith('property') and current_element == 'vertex':
+                    # Định nghĩa thuộc tính của vertex (chỉ quan tâm vertex properties)
                     parts = line.split()
-                    vertex_props.append((parts[1], parts[2]))
+                    # Lưu cặp (type, name): property float x, property float y, property uchar red
+                    vertex_props.append((parts[1], parts[2]))  # Ví dụ: ("float", "x")
                     
             if vertex_count == 0:
                 self._create_default_cube()
                 return
 
+            # Đọc file ASCII
             if format_type == 'ascii':
                 lines = f.read().decode('utf-8', errors='ignore').splitlines()
                 lines = [l.strip() for l in lines if l.strip()]
                 
+                # Đọc vertices
                 for i in range(vertex_count):
                     parts = lines[i].split()
                     if len(parts) >= 3:
+                        # Lấy tọa độ x,y,z
                         vertices.append([float(parts[0]), float(parts[1]), float(parts[2])])
+                        # Lấy màu nếu có (thường ở cuối)
                         if len(parts) >= 6:
                             try:
                                 r, g, b = float(parts[-3]), float(parts[-2]), float(parts[-1])
+                                # Chuyển đổi về range [0,1]
                                 colors.append([r/255.0 if r>1 else r, g/255.0 if g>1 else g, b/255.0 if b>1 else b])
                             except: pass
                 
+                # Đọc faces
                 for i in range(vertex_count, vertex_count + face_count):
                     if i >= len(lines): break
                     parts = lines[i].split()
                     if len(parts) >= 4:
-                        n_verts = int(parts[0])
+                        n_verts = int(parts[0])  # Số vertices trong face
                         face_verts = [int(x) for x in parts[1:1+n_verts]]
+                        # Tách quad thành 2 triangles
                         if n_verts == 3: faces.append(face_verts)
                         elif n_verts == 4:
                             faces.append([face_verts[0], face_verts[1], face_verts[2]])
                             faces.append([face_verts[2], face_verts[1], face_verts[3]])
                             
+            # Đọc file BINARY (không phải ASCII)
             else:
+                # Xác định endian: little-endian (<) hoặc big-endian (>)
                 endian = '<' if format_type == 'binary_little_endian' else '>'
+                
+                # Xây dựng format string cho struct.unpack dựa trên các properties
+                # Ví dụ: vertex_props = [("float", "x"), ("float", "y"), ("float", "z"), ("uchar", "r"), ("uchar", "g"), ("uchar", "b")]
+                # → v_fmt = "<ffBBB" (little-endian: 3 floats + 3 unsigned chars)
                 v_fmt = endian
                 for p_type, _ in vertex_props:
-                    if p_type in ['float', 'float32']: v_fmt += 'f'
-                    elif p_type in ['double', 'float64']: v_fmt += 'd'
-                    elif p_type in ['uchar', 'uint8']: v_fmt += 'B'
-                    elif p_type in ['int', 'int32']: v_fmt += 'i'
-                    else: v_fmt += 'f'
+                    if p_type in ['float', 'float32']: v_fmt += 'f'    # float = 4 bytes
+                    elif p_type in ['double', 'float64']: v_fmt += 'd'  # double = 8 bytes
+                    elif p_type in ['uchar', 'uint8']: v_fmt += 'B'    # unsigned char = 1 byte
+                    elif p_type in ['int', 'int32']: v_fmt += 'i'      # int = 4 bytes
+                    else: v_fmt += 'f'  # Mặc định là float
                     
-                v_size = struct.calcsize(v_fmt)
+                v_size = struct.calcsize(v_fmt)  # Tổng kích thước mỗi vertex (bytes)
+                # Ví dụ: struct.calcsize("<ffBBB") = 4+4+4+1+1+1 = 15 bytes
                 
+                # Đọc vertices từ binary data
                 for _ in range(vertex_count):
-                    data = f.read(v_size)
+                    data = f.read(v_size)  # Đọc chính xác v_size bytes cho 1 vertex
                     if not data: break
-                    unpacked = struct.unpack(v_fmt, data)
-                    v = [0.0, 0.0, 0.0]
-                    c = [-1.0, -1.0, -1.0]
+                    unpacked = struct.unpack(v_fmt, data)  # Unpack theo format string
+                    v = [0.0, 0.0, 0.0]  # Vertex position [x,y,z]
+                    c = [-1.0, -1.0, -1.0]  # Color [r,g,b], -1 = không có màu
                     
+                    # Map dữ liệu đã unpack vào các thuộc tính tương ứng
                     for idx, (p_type, p_name) in enumerate(vertex_props):
-                        val = unpacked[idx]
-                        if p_name == 'x': v[0] = float(val)
-                        elif p_name == 'y': v[1] = float(val)
-                        elif p_name == 'z': v[2] = float(val)
-                        elif p_name in ['r', 'red']: c[0] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
-                        elif p_name in ['g', 'green']: c[1] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
-                        elif p_name in ['b', 'blue']: c[2] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        val = unpacked[idx]  # Giá trị tại vị trí idx
+                        if p_name == 'x': v[0] = float(val)      # Gán tọa độ x
+                        elif p_name == 'y': v[1] = float(val)      # Gán tọa độ y
+                        elif p_name == 'z': v[2] = float(val)      # Gán tọa độ z
+                        elif p_name in ['r', 'red']:              # Gán màu đỏ
+                            # Nếu là unsigned char (0-255) → chia cho 255, nếu là float → giữ nguyên
+                            c[0] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        elif p_name in ['g', 'green']:            # Gán màu xanh lá
+                            c[1] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
+                        elif p_name in ['b', 'blue']:             # Gán màu xanh dương
+                            c[2] = val/255.0 if p_type in ['uchar', 'uint8'] else float(val)
                         
                     vertices.append(v)
-                    if c[0] >= 0: colors.append(c)
+                    if c[0] >= 0: colors.append(c)  # Chỉ add color nếu có giá trị hợp lệ
                 
+                # Đọc faces từ binary data
                 for _ in range(face_count):
-                    count_data = f.read(1)
+                    count_data = f.read(1)  # Đọc 1 byte: số vertices trong face
                     if not count_data: break
-                    count = struct.unpack(endian + 'B', count_data)[0]
-                    idx_data = f.read(count * 4) 
+                    count = struct.unpack(endian + 'B', count_data)[0]  # Unpack unsigned char
+                    idx_data = f.read(count * 4)  # Đọc count * 4 bytes (mỗi index = 4 bytes)
                     if len(idx_data) < count * 4: break
-                    indices = struct.unpack(endian + str(count) + 'i', idx_data)
+                    indices = struct.unpack(endian + str(count) + 'i', idx_data)  # Unpack count integers
                     if count == 3:
-                        faces.append(list(indices))
+                        faces.append(list(indices))  # Triangle
                     elif count == 4:
+                        # Tách quad thành 2 triangles
                         faces.append([indices[0], indices[1], indices[2]])
                         faces.append([indices[2], indices[1], indices[3]])
 
+        # Fallback nếu không có faces
         if face_count == 0 or len(faces) == 0:
             self._create_default_cube()
             return
             
+        # Chuyển đổi sang numpy arrays
         self.vertices = np.array(vertices, dtype=np.float32)
         
+        # Flatten faces thành indices array
         indices = []
         for face in faces:
             indices.extend(face)
         self.indices = np.array(indices, dtype=np.int32)
         
+        # Sử dụng colors từ file hoặc generate
         if len(colors) == len(vertices):
             self.colors = np.array(colors, dtype=np.float32)
         else:
             self._generate_colors()
             
+        # Generate normals và normalize model
         self._generate_normals()
         self._normalize_model()
 
@@ -380,12 +436,24 @@ class ModelLoader(BaseShape):
         
     def _generate_texcoords(self):
         """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        # Step 1: Tính độ dài của mỗi vertex để normalize về unit sphere
         norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0 # Tránh chia cho 0
+        # Step 2: Tránh chia cho 0 nếu vertex tại origin
+        norms[norms == 0] = 1.0 
+        # Step 3: Normalize vertices về sphere radius = 1
         norm_v = self.vertices / norms
         
-        u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
+        # Step 4: Tính U coordinate từ longitude (kinh độ)
+        # arctan2(z, x) = angle quanh trục Y [-π, π]
+        # Convert sang [0, 1] range cho texture
+        u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi) #lay cot thu 2 
+        
+        # Step 5: Tính V coordinate từ latitude (vĩ độ)  
+        # arcsin(y) = angle từ equator [-π/2, π/2]
+        # Convert sang [0, 1] range (flip cho correct orientation)
         v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
+        
+        # Step 6: Ghép thành UV coordinates cho OpenGL
         self.texcoords = np.column_stack((u, v)).astype(np.float32)
     
     def _normalize_model(self):
@@ -433,6 +501,7 @@ class ModelLoader(BaseShape):
             return None
 
     def _load_material_textures(self):
+        # Sau khi biết material nào dùng texture nào, hàm này sẽ load hết chúng lên GPU.
         for texture_id in self.material_texture_ids.values():
             GL.glDeleteTextures(1, [texture_id])
         self.material_texture_ids = {}
@@ -468,6 +537,8 @@ class ModelLoader(BaseShape):
         print(f"Đã load texture thành công cho Model: {filepath}")
 
     def draw(self, projection, view, model):
+        # Khi vẽ model OBJ, nếu model có nhiều material thì không thể draw một phát rồi xong.
+        # Ta phải duyệt theo từng material group và bind đúng texture trước mỗi lệnh draw.
         GL.glUseProgram(self.shader.render_idx)
         
         object_transform = self.get_transform_matrix()

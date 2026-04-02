@@ -12,6 +12,12 @@ from libs.lighting import LightingManager
 
 class SGDVisualizer:
     def __init__(self, loss_func, x_range=(-5, 5), y_range=(-5, 5), resolution=80):
+        # loss_func là "hàm mục tiêu" cần tối ưu.
+        # Từ loss này, visualizer sẽ:
+        # 1. dựng mặt 3D z = f(x, y)
+        # 2. thả các optimizer lên mặt đó
+        # 3. cập nhật vị trí từng optimizer theo gradient
+        # 4. vẽ quỹ đạo di chuyển của chúng
         self.loss_func = loss_func
         self.x_range = x_range
         self.y_range = y_range
@@ -55,15 +61,18 @@ class SGDVisualizer:
         self.surface_y_offset = 0.0
         self.base_plane_z = -2.02
         
+        # Khởi tạo xong state thì sinh luôn mesh của mặt loss.
         self._generate_surface()
     
     def _generate_surface(self):
+        # BƯỚC 1: tạo lưới mẫu đều trên miền x-y.
         x_vals = np.linspace(self.x_range[0], self.x_range[1], self.resolution)
         y_vals = np.linspace(self.y_range[0], self.y_range[1], self.resolution)
         
         X, Y = np.meshgrid(x_vals, y_vals)
         Z = np.zeros_like(X)
         
+        # BƯỚC 2: tính giá trị loss tại từng điểm lưới để thu được độ cao Z.
         for i in range(self.resolution):
             for j in range(self.resolution):
                 Z[i, j] = self.loss_func.compute(X[i, j], Y[i, j])
@@ -72,6 +81,7 @@ class SGDVisualizer:
         Z = np.clip(Z, -50.0, 100.0)
         
         z_min, z_max = Z.min(), Z.max()
+        # BƯỚC 3: chuẩn hóa Z về [0, 1] để việc tô màu và scale ổn định hơn.
         if z_max - z_min > 0:
             Z_norm = (Z - z_min) / (z_max - z_min)
         else:
@@ -85,6 +95,7 @@ class SGDVisualizer:
         dx = x_vals[1] - x_vals[0]
         dy = y_vals[1] - y_vals[0]
         
+        # BƯỚC 4: ánh xạ miền x-y-z thực sang không gian vẽ cỡ [-2, 2].
         x_scale = 4.0 / (self.x_range[1] - self.x_range[0])
         y_scale = 4.0 / (self.y_range[1] - self.y_range[0])
         z_scale = 4.0 / max(z_max - z_min, 1.0)
@@ -98,6 +109,11 @@ class SGDVisualizer:
         self.surface_z_min = z_min
         self.surface_z_max = z_max
         
+        # BƯỚC 5: từ mỗi điểm lưới, sinh:
+        # - vertex để vẽ
+        # - color để nhìn độ cao trực quan
+        # - normal để chiếu sáng
+        # - index để tách ô vuông thành 2 tam giác
         for i in range(self.resolution):
             for j in range(self.resolution):
                 x = (x_vals[j] - self.x_range[0]) * x_scale - 2.0
@@ -114,6 +130,8 @@ class SGDVisualizer:
                 ])
                 
                 if 0 < i < self.resolution - 1 and 0 < j < self.resolution - 1:
+                    # Normal của mặt loss cũng đi theo ý tưởng bề mặt z = f(x, y):
+                    # lấy đạo hàm gần đúng theo x và y rồi dựng vector pháp tuyến.
                     dz_dx = (Z[i, j+1] - Z[i, j-1]) / (2 * dx)
                     dz_dy = (Z[i+1, j] - Z[i-1, j]) / (2 * dy)
                     
@@ -126,6 +144,7 @@ class SGDVisualizer:
                     normals.append([0.0, 0.0, 1.0])
                 
                 if i < self.resolution - 1 and j < self.resolution - 1:
+                    # Mỗi ô lưới được cắt thành 2 tam giác để GPU dễ render.
                     v0 = i * self.resolution + j
                     v1 = i * self.resolution + (j + 1)
                     v2 = (i + 1) * self.resolution + j
@@ -138,6 +157,7 @@ class SGDVisualizer:
         self.surface_indices = np.array(indices, dtype=np.int32)
     
     def setup(self):
+        # BƯỚC 6: sau khi có dữ liệu CPU, tạo VAO/VBO/EBO và shader để render trên GPU.
         self.surface_vao = VAO()
         self.surface_vao.add_vbo(0, self.surface_vertices, ncomponents=3, stride=0, offset=None)
         self.surface_vao.add_vbo(1, self.surface_colors, ncomponents=3, stride=0, offset=None)
@@ -156,12 +176,16 @@ class SGDVisualizer:
         self.trail_uma = UManager(self.trail_shader)
     
     def add_optimizer(self, name, optimizer_type, initial_pos=None):
+        # Mỗi optimizer được lưu như một gói state riêng:
+        # vị trí hiện tại, loss hiện tại, độ lớn gradient, history quỹ đạo,
+        # buffer momentum, state Adam...
         if initial_pos is None:
             initial_pos = [
                 np.random.uniform(self.x_range[0], self.x_range[1]),
                 np.random.uniform(self.y_range[0], self.y_range[1])
             ]
 
+        # Tạo seed cố định để nhiễu của SGD / MiniBatch ổn định giữa các lần demo.
         seed = sum(ord(ch) for ch in f"{name}:{optimizer_type}")
         
         self.optimizers[name] = {
@@ -185,6 +209,9 @@ class SGDVisualizer:
         self.trajectories[name] = []
 
     def _estimate_stochastic_gradient(self, opt, grad, batch_size, mode):
+        # Hàm này mô phỏng ý tưởng "stochastic":
+        # gradient không còn là gradient đầy đủ chính xác nữa,
+        # mà có nhiễu hoặc được lấy trung bình trên mini-batch.
         if mode == 'GD':
             return grad
 
@@ -192,11 +219,15 @@ class SGDVisualizer:
         rng = opt['rng']
 
         if mode == 'SGD':
-            scale = 0.18
-            noise = rng.normal(0.0, scale, size=grad.shape).astype(np.float32)
+            # SGD: lấy gradient nhiễu hơn, tương đương nhìn thấy một mẫu nhỏ nên hướng đi dao động.
+            scale = 0.18 #độ nhiễu càng lớn càng rung càng nhỏ thì sẽ càng giống GD
+            #phân phối chuẩn có trung bình 0 và phương sai 𝜎^2
+            noise = rng.normal(0.0, scale, size=grad.shape).astype(np.float32) # f(x) = 1/σ√2π * exp(-x²/2σ²)
             return grad * (1.0 + noise)
 
         if mode == 'MiniBatch':
+            # MiniBatch: lấy trung bình nhiều gradient nhiễu,
+            # nên đỡ "giật" hơn SGD thuần nhưng vẫn không mượt như GD toàn phần.
             scale = 0.25 / np.sqrt(batch)
             samples = []
             for _ in range(batch):
@@ -213,27 +244,42 @@ class SGDVisualizer:
         opt = self.optimizers[name]
         x, y = opt['position']
         
+        # BƯỚC 7: tại vị trí hiện tại, tính gradient của loss.
+        # Gradient chính là hướng dốc nhất đi lên,
+        # nên optimizer sẽ đi ngược dấu gradient để đi xuống.
         grad = self.loss_func.gradient(x, y).astype(np.float32)
         effective_grad = grad
         
         if opt['type'] == 'GD':
+            # đi ngược chiều gradient để tìm điểm tối ưu
+            # Gradient Descent chuẩn: dùng đúng full gradient.
+            # đạo hàm của 1 hàm là độ dốc của đồ thị tại 1 điểm
             effective_grad = grad
             opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'SGD':
+            # dùng 1 gradient cho toàn bộ dữ liệu
+            # SGD: dùng gradient nhiễu để tạo cảm giác "nhảy" khi tối ưu.
             effective_grad = self._estimate_stochastic_gradient(opt, grad, batch_size, 'SGD')
             opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'MiniBatch':
+            # MiniBatch: gradient là trung bình của một nhóm mẫu nhỏ.
             effective_grad = self._estimate_stochastic_gradient(opt, grad, batch_size, 'MiniBatch')
             opt['position'] = opt['position'] - learning_rate * effective_grad
             
         elif opt['type'] == 'Momentum':
+            # Momentum cộng "quán tính" vào bước cập nhật:
+            # buffer mới = momentum * buffer cũ + gradient hiện tại.
             effective_grad = grad
+            #vt = 𝜇 vt-1 + gt
+            # Pt+1 = Pt - 𝜂 vt
             opt['momentum_buffer'] = momentum * opt['momentum_buffer'] + effective_grad
             opt['position'] = opt['position'] - learning_rate * opt['momentum_buffer']
             
         elif opt['type'] == 'Nesterov':
+            # Nesterov nhìn trước một bước (lookahead), rồi mới tính gradient tại vị trí dự báo đó.
+            # Nesterov thì “nhìn trước” xem nếu quán tính kéo mình đi một đoạn thì mình sẽ ở đâu, rồi tính gradient ở đó.
             nesterov_lr = learning_rate * 0.5  # Slow down Nesterov
             lookahead_pos = opt['position'] - momentum * opt['momentum_buffer']
             effective_grad = self.loss_func.gradient(lookahead_pos[0], lookahead_pos[1]).astype(np.float32)
@@ -241,6 +287,40 @@ class SGDVisualizer:
             opt['position'] = opt['position'] - nesterov_lr * opt['momentum_buffer']
             
         elif opt['type'] == 'Adam':
+            # Adam = Adaptive Moment Estimation
+            # Mục tiêu: cập nhật tham số để loss giảm dần, ổn định hơn GD thường.
+            #
+            # Ý tưởng chính:
+            # 1) Dùng m để nhớ "xu hướng" gradient gần đây  -> giống momentum
+            # 2) Dùng v để nhớ "độ lớn" gradient từng chiều -> tự chỉnh bước đi theo từng trục
+            #
+            # Ký hiệu:
+            # p_t      : vị trí/tham số tại bước t
+            # g_t      : gradient tại bước t
+            # m_t      : moment bậc 1 (trung bình động của gradient)
+            # v_t      : moment bậc 2 (trung bình động của gradient bình phương)
+            # beta1    : hệ số nhớ của m, thường ~ 0.9
+            # beta2    : hệ số nhớ của v, thường ~ 0.999
+            # eta      : learning rate
+            # epsilon  : số rất nhỏ để tránh chia cho 0
+            #
+            # Công thức Adam:
+            # g_t = ∇f(p_t)
+            #
+            # m_t = beta1 * m_(t-1) + (1 - beta1) * g_t
+            # v_t = beta2 * v_(t-1) + (1 - beta2) * (g_t)^2
+            #
+            # Bias correction:
+            # m_hat = m_t / (1 - beta1^t)
+            # v_hat = v_t / (1 - beta2^t)
+            #
+            # Update:
+            # p_(t+1) = p_t - eta * m_hat / (sqrt(v_hat) + epsilon)
+            #
+            # Trực giác:
+            # - m_hat cho biết nên đi theo hướng nào
+            # - sqrt(v_hat) cho biết chiều nào quá dốc thì giảm bước lại
+            # => Adam = có quán tính + tự điều chỉnh learning rate theo từng chiều
             t = opt['step'] + 1
             effective_grad = grad
             opt['adam_m'] = opt['beta1'] * opt['adam_m'] + (1 - opt['beta1']) * effective_grad
@@ -254,10 +334,11 @@ class SGDVisualizer:
 
         opt['gradient_mag'] = float(np.linalg.norm(effective_grad))
         
-        # Clip position to domain bounds
+        # BƯỚC 8: chặn vị trí lại trong miền đang vẽ để optimizer không "bay" ra ngoài scene.
         opt['position'][0] = np.clip(opt['position'][0], self.x_range[0], self.x_range[1])
         opt['position'][1] = np.clip(opt['position'][1], self.y_range[0], self.y_range[1])
         
+        # BƯỚC 9: cập nhật loss, số bước và lưu history để lát nữa còn vẽ quỹ đạo.
         opt['loss'] = self.loss_func.compute(opt['position'][0], opt['position'][1])
         opt['step'] += 1
         opt['history'].append(opt['position'].copy())
@@ -273,6 +354,8 @@ class SGDVisualizer:
             self.trajectories[name].append((p1, p2, self.optimizer_colors.get(opt['type'], [1, 1, 1])))
     
     def get_draw_coords(self, x, y, z=None):
+        # Hàm phụ này đổi tọa độ toán học thật (x, y, z của loss)
+        # sang tọa độ hiển thị trong scene OpenGL.
         dx = (x - self.x_range[0]) * self.surface_x_scale - self.surface_x_offset
         dy = (y - self.y_range[0]) * self.surface_y_scale - self.surface_y_offset
         
@@ -286,6 +369,11 @@ class SGDVisualizer:
         return [dx, dy, dz]
     
     def draw(self, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0, show_trajectory=True):
+        # BƯỚC 10: vẽ toàn bộ cảnh SGD theo thứ tự:
+        # 1. vẽ mặt loss
+        # 2. vẽ marker của từng optimizer
+        # 3. vẽ đường rơi xuống đáy
+        # 4. vẽ quỹ đạo nếu được bật
         GL.glUseProgram(self.surface_shader.render_idx)
         
         modelview = view @ np.eye(4, dtype=np.float32)
@@ -306,6 +394,7 @@ class SGDVisualizer:
         GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
         
         for name, opt in self.optimizers.items():
+            # Mỗi optimizer là một quả cầu nhỏ đang chạy trên bề mặt loss.
             pos = opt['position']
             dx, dy, dz = self.get_draw_coords(pos[0], pos[1])
             
@@ -318,6 +407,7 @@ class SGDVisualizer:
                 self._draw_trail_projection(opt['history'], opt['type'], projection, view)
     
     def _draw_sphere(self, x, y, z, color, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0):
+        # Marker của optimizer được vẽ như một quả cầu nhỏ để dễ nhìn trong không gian 3D.
         lat_div, long_div = 12, 12
         radius = 0.05
         
@@ -376,6 +466,7 @@ class SGDVisualizer:
         if len(history) < 2:
             return
         
+        # Quỹ đạo chính là nối các vị trí lịch sử lại thành nhiều đoạn thẳng liên tiếp.
         color = self.optimizer_colors.get(opt_type, [1, 1, 1])
         vertices = []
         colors = []
@@ -413,6 +504,7 @@ class SGDVisualizer:
         if len(history) < 2:
             return
 
+        # Đây là bản chiếu của quỹ đạo xuống mặt đáy để người xem dễ theo dõi hướng đi trên mặt phẳng x-y.
         color = np.array(self.optimizer_colors.get(opt_type, [1, 1, 1]), dtype=np.float32) * 0.55
         vertices = []
         colors = []
@@ -443,6 +535,8 @@ class SGDVisualizer:
             GL.glDrawArrays(GL.GL_LINES, 0, len(vertices))
 
     def _draw_drop_line(self, x, y, z, color, projection, view):
+        # Đường thả đứng giúp người xem nhìn rõ:
+        # optimizer đang nằm ở độ cao loss bao nhiêu so với mặt đáy tham chiếu.
         line_color = np.array(color, dtype=np.float32) * 0.7
         vertices = np.array([
             [x, y, self.base_plane_z],
@@ -472,6 +566,8 @@ class SGDVisualizer:
                 np.random.uniform(self.y_range[0], self.y_range[1])
             ]
         
+        # Reset nghĩa là đưa toàn bộ state của optimizer về trạng thái ban đầu:
+        # vị trí, loss, gradient, history, momentum buffer, Adam moments...
         opt = self.optimizers[name]
         opt['position'] = np.array(initial_pos, dtype=np.float32)
         opt['velocity'] = np.zeros(2, dtype=np.float32)

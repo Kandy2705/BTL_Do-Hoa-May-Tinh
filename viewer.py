@@ -15,6 +15,8 @@ from libs.gizmo import TransformGizmo
 
 class Viewer:
     def __init__(self, width=1280, height=720):
+        # Viewer chịu trách nhiệm mở cửa sổ, tạo OpenGL context,
+        # dựng ImGui và render mọi thứ lên màn hình.
         glfw.init()
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -61,9 +63,10 @@ class Viewer:
         """Set reference to AppModel for gizmo interaction"""
         self.model = model
 
-    @property
+    @property #biến method thành property 
     def trackball(self):
         """0 là Scene Camera (Tự do), >0 là các Game Camera trong cảnh"""
+        # Property này quyết định "camera nào đang thật sự được dùng để nhìn scene".
         if not self.model: 
             return self.default_trackball
             
@@ -137,7 +140,7 @@ class Viewer:
                     proj = self.trackball.projection_matrix(glfw.get_window_size(window))
                     win_size = glfw.get_window_size(window)
                     
-                    # Kéo Gizmo
+                    # Nếu đang thao tác object, kéo chuột sẽ chuyển thành transform qua gizmo.
                     self.gizmo.handle_mouse_drag(mouse_pos, target, current_tool, view, proj, win_size)
         
         # Cập nhật vị trí chuột cuối cùng
@@ -170,6 +173,7 @@ class Viewer:
             self.key_callback(window, key, scancode, action, mods)
 
     def load_texture(self, image_path):
+        # Hàm này dùng cho icon UI của editor, không phải texture của model .obj.
         img = Image.open(image_path).convert("RGBA")
         # Lật ảnh ngược lại để đúng chiều trong OpenGL
         img = img.transpose(Image.FLIP_TOP_BOTTOM)
@@ -202,6 +206,9 @@ class Viewer:
         glfw.swap_buffers(self.win)
 
     def draw_drawables(self, drawables, scene_objects, active_tool="select", selected_objects=None):
+        # Đây là khối render chính của viewer:
+        # lấy camera hiện tại, dựng ma trận view/projection,
+        # thu thập đèn trong scene rồi gọi draw cho từng drawable.
         view = self.trackball.view_matrix()
         projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
 

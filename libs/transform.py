@@ -55,18 +55,73 @@ def ortho(left, right, bot, top, near, far):
 
 
 def perspective(fovy, aspect, near, far):
-    """ Ma trận chiếu phối cảnh, từ trường nhìn và tỷ lệ khung hình """
-    # Chiếu phối cảnh: tạo hiệu ứng 3D với đối tượng xa nhỏ hơn đối tượng gần
-    # fovy: trường nhìn theo chiều dọc (độ)
-    # aspect: tỷ lệ khung hình (rộng/cao)
-    _scale = 1.0/math.tan(math.radians(fovy)/2.0)
-    sx, sy = _scale / aspect, _scale
+    """
+    Tạo ma trận chiếu phối cảnh (perspective projection matrix).
+
+    Ý tưởng:
+    - Camera nhìn theo kiểu phối cảnh: vật xa nhìn nhỏ hơn vật gần.
+    - Ma trận này biến điểm từ view/camera space -> clip space.
+    - Sau đó pipeline sẽ chia cho w (perspective divide):
+          x_ndc = x_clip / w_clip
+          y_ndc = y_clip / w_clip
+      và vì ma trận này tạo ra w_clip = -z_view,
+      nên x, y sẽ bị chia theo độ sâu z:
+          càng xa -> |z| càng lớn -> hình càng nhỏ.
+
+    Tham số:
+    - fovy   : góc nhìn theo chiều dọc, đơn vị độ
+    - aspect : tỉ lệ khung hình = width / height
+    - near   : mặt cắt gần
+    - far    : mặt cắt xa
+    """
+
+    # B1) Đổi FOV sang hệ số scale theo trục y.
+    # Từ hình học camera pinhole:
+    #   tan(fovy/2) = (nửa chiều cao near plane) / near
+    # => hệ số scale nghịch đảo là:
+    #   1 / tan(fovy/2)
+    #
+    # FOV nhỏ  -> tan nhỏ -> scale lớn  -> zoom in
+    # FOV lớn  -> tan lớn -> scale nhỏ  -> zoom out
+    _scale = 1.0 / math.tan(math.radians(fovy) / 2.0)
+
+    # B2) Scale theo x và y.
+    # sy dùng trực tiếp từ FOV dọc.
+    # sx phải chia thêm cho aspect để ảnh không bị kéo giãn ngang/dọc.
+    sx = _scale / aspect
+    sy = _scale
+
+    # B3) Hai hệ số cho trục z.
+    # Mục tiêu là biến đổi z để sau projection + chia w,
+    # near và far được map đúng vào miền depth chuẩn.
+    #
+    # Không cần nhớ thuộc lòng công thức, chỉ cần nhớ:
+    # - zz, zw dùng để "nén" khoảng [near, far] vào khoảng depth chuẩn
+    # - near/far ảnh hưởng tới depth buffer và clipping
     zz = (far + near) / (near - far)
-    zw = 2 * far * near/(near - far)
-    return np.array([[sx, 0,  0,  0],
-                     [0,  sy, 0,  0],
-                     [0,  0, zz, zw],
-                     [0,  0, -1,  0]], 'f')
+    zw = (2.0 * far * near) / (near - far)
+
+    # B4) Trả về ma trận perspective chuẩn kiểu OpenGL.
+    #
+    # Với điểm p = [x, y, z, 1]^T trong view space:
+    #
+    # x_clip = sx * x
+    # y_clip = sy * y
+    # z_clip = zz * z + zw
+    # w_clip = -z
+    #
+    # Sau đó pipeline chia:
+    # x_ndc = x_clip / w_clip = sx*x / (-z)
+    # y_ndc = y_clip / w_clip = sy*y / (-z)
+    #
+    # Đây chính là lý do tạo ra hiệu ứng:
+    #   vật xa -> z lớn về độ lớn -> x,y bị chia nhiều hơn -> nhìn nhỏ hơn.
+    return np.array([
+        [sx, 0,  0,  0],
+        [0,  sy, 0,  0],
+        [0,  0, zz, zw],
+        [0,  0, -1,  0]
+    ], dtype='f')
 
 
 def frustum(xmin, xmax, ymin, ymax, zmin, zmax):
@@ -111,6 +166,9 @@ def sincos(degrees=0.0, radians=None):
 def rotate(axis=(1., 0., 0.), angle=0.0, radians=None):
     """ Ma trận quay 4x4 quanh 'axis' với 'angle' độ hoặc 'radians' """
     # Sử dụng công thức Rodrigues' rotation formula
+    # Ý tưởng của Rodrigues:
+    # tách vector thành phần song song và vuông góc với trục quay,
+    # rồi xoay phần vuông góc trong mặt phẳng trực giao với trục đó.
     x, y, z = normalized(vec(axis))  # Chuẩn hóa trục quay
     s, c = sincos(angle, radians)     # sin và cos của góc quay
     nc = 1 - c
@@ -129,6 +187,8 @@ def lookat(eye, target, up):
     # up: vector trên (trục Y của camera)
     view = normalized(vec(target)[:3] - vec(eye)[:3])
     up = normalized(vec(up)[:3])
+    # right = view x up tạo ra trục X của camera.
+    # Sau đó tính lại up bằng cross để đảm bảo 3 trục trực chuẩn với nhau.
     right = np.cross(view, up)
     up = np.cross(right, view)
     rotation = np.identity(4)
@@ -148,6 +208,8 @@ def quaternion(x=vec(0., 0., 0.), y=0.0, z=0.0, w=1.0):
 def quaternion_from_axis_angle(axis, degrees=0.0, radians=None):
     """ Tính quaternion từ một trục vector và góc quay quanh trục này """
     # Chuyển đổi biểu diễn axis-angle sang quaternion
+    # Công thức chuẩn là:
+    # q = [cos(theta/2), sin(theta/2) * axis]
     sin, cos = sincos(radians=radians*0.5) if radians else sincos(degrees*0.5)
     return quaternion(normalized(vec(axis))*sin, w=cos)
 
@@ -188,6 +250,7 @@ def quaternion_matrix(q):
 def quaternion_slerp(q0, q1, fraction):
     """ Nội suy cầu phương của hai quaternion theo 'fraction' """
     # SLERP: Spherical Linear Interpolation - nội suy trơn trên đường tròn đơn vị
+    # Dùng SLERP thay vì lerp thường để phép quay giữ tốc độ góc mượt và không méo.
     # chỉ các quaternion đơn vị mới là các phép quay hợp lệ.
     q0, q1 = normalized(q0), normalized(q1)
     dot = np.dot(q0, q1)
@@ -205,7 +268,7 @@ def quaternion_slerp(q0, q1, fraction):
 
 # một class trackball dựa trên các hàm quaternion được cung cấp -------------------
 class Trackball:
-    """Trackball ảo để xem cảnh 3D. Độc lập với hệ thống window."""
+    """Trackball ảo để xem cảnh 3D."""
 
     def __init__(self, yaw=0., roll=0., pitch=0., distance=3., radians=None):
         """ Xây dựng trackball mới với chế độ xem được chỉ định, góc theo độ """

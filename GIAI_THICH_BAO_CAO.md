@@ -1,5 +1,7 @@
 # Giải thích đồ án để báo cáo
 
+Nếu cần kiểu tài liệu "mở code lên rồi nói theo từng dòng/cụm dòng", xem thêm `CHU_THICH_CODE_BAO_CAO.md`.
+
 ## 1. Nhìn nhanh dự án này đang làm gì
 
 Đây là một mini engine đồ họa viết bằng Python, dùng:

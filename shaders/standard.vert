@@ -15,8 +15,8 @@ uniform vec3 u_light_pos[MAX_LIGHTS];
 uniform vec3 u_light_color[MAX_LIGHTS];
 uniform float u_light_intensity[MAX_LIGHTS];
 uniform bool u_light_active[MAX_LIGHTS];
-uniform float u_light_range;          // ← THÊM: khoảng cách tối đa của đèn
-uniform float u_shininess;            // ← THÊM: độ bóng
+uniform float u_light_range;          // ← khoảng cách tối đa của đèn
+uniform float u_shininess;            // ← độ bóng
 
 out vec3 vertPos;
 out vec3 normalInterp;
@@ -27,7 +27,7 @@ out vec3 gouraudLighting;
 void main() {
     if (u_render_mode == 3) {
         vec3 normPos = normalize(position);
-        colorInterp = (normPos + 1.0) / 2.0;
+        colorInterp = (normPos + 1.0) / 2.0; //chuyển từ -1,1 qua 0,1
     } else {
         colorInterp = color; 
     }
