@@ -10,8 +10,7 @@ class GameObject:
         self.shader = 0
         self.color = [1.0, 1.0, 1.0, 0.0]
         self.texture_filename = ""
-        self.rendering_mode = "flat_color"  # Default rendering mode
-
+        self.rendering_mode = "flat_color"
         self.visible = True
 
         self.position = [0.0, 0.0, 0.0]

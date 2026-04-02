@@ -20,16 +20,16 @@ from base_shape import BaseShape
 
 class MathematicalSurface(BaseShape):
     def __init__(self, vert_shader, frag_shader, func=None, x_range=(-5, 5), y_range=(-5, 5), resolution=50):
-        super().__init__()  # Initialize transform from BaseShape
+        super().__init__()  # Khởi tạo transform từ BaseShape
         self.vert_shader = vert_shader
         self.frag_shader = frag_shader
-        self.use_custom_color = False  # Flag to use custom color or auto-generated colors
-        self.use_flat_color = False  # Flag for flat color override
-        self.use_texture = False  # Texture support
+        self.use_custom_color = False  # Cờ sử dụng màu tùy chỉnh hoặc màu tự sinh
+        self.use_flat_color = False  # Cờ ghi đè màu đơn sắc
+        self.use_texture = False  # Hỗ trợ texture
         self.texture_id = None
-        self.render_mode = 2  # Default to Phong shading
+        self.render_mode = 2  # Mặc định dùng Phong shading
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-        self.original_colors = None  # Store original auto-generated colors
+        self.original_colors = None  # Lưu trữ màu tự sinh ban đầu
         
         if func is None:
             self.func = lambda x, y: (x**2 + y - 11)**2 + (x + y**2 - 7)**2
@@ -40,6 +40,7 @@ class MathematicalSurface(BaseShape):
         self.y_range = y_range
         self.resolution = resolution
         
+        # Khi object được tạo, mesh của bề mặt toán học sẽ được sinh ngay từ hàm f(x, y).
         self._generate_surface()
         self._generate_texcoords()
         
@@ -47,6 +48,7 @@ class MathematicalSurface(BaseShape):
         """Generate vertices, indices, normals and colors for the mathematical surface"""
         import warnings
         
+        # Bước 1: tạo lưới mẫu trong miền giá trị thật của x và y.
         x_real = []
         for i in range(self.resolution):
             x = self.x_range[0] + (self.x_range[1] - self.x_range[0]) * i / (self.resolution - 1)
@@ -71,6 +73,7 @@ class MathematicalSurface(BaseShape):
         X_real = np.array(X_real, dtype=np.float32)
         Y_real = np.array(Y_real, dtype=np.float32)
         
+        # Bước 2: tính z = f(x, y) trên cả lưới.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             Z_real = self.func(X_real, Y_real)
@@ -78,6 +81,7 @@ class MathematicalSurface(BaseShape):
         Z_real = np.nan_to_num(Z_real, nan=0.0, posinf=100.0, neginf=-100.0)
         Z_real = np.clip(Z_real, -100.0, 100.0)
         
+        # Bước 3: chuẩn hóa dữ liệu để bề mặt không quá to hoặc quá nhỏ khi render.
         def normalize_for_draw(arr, target_min=-2.0, target_max=2.0):
             arr_min, arr_max = arr.min(), arr.max()
             if arr_max - arr_min == 0:
@@ -95,11 +99,20 @@ class MathematicalSurface(BaseShape):
         dx_draw = X_draw[0, 1] - X_draw[0, 0]
         dy_draw = Y_draw[1, 0] - Y_draw[0, 0]
         
+        # Bước 4: từ lưới điểm, sinh ra:
+        # - vertices để vẽ
+        # - normals để chiếu sáng
+        # - colors để tô theo độ cao
         for i in range(self.resolution):
             for j in range(self.resolution):
                 vertices.append([X_draw[i, j], Y_draw[i, j], Z_draw[i, j]])
                 
                 if 0 < i < self.resolution-1 and 0 < j < self.resolution-1:
+                    # Vì bề mặt có dạng z = f(x, y), pháp tuyến có thể lấy từ gradient.
+                    # Về lý thuyết, nếu viết bề mặt dưới dạng F(x, y, z) = z - f(x, y) = 0
+                    # thì normal tỉ lệ với [-df/dx, -df/dy, 1].
+                    # Ở đây em xấp xỉ df/dx và df/dy bằng sai phân hữu hạn trung tâm.
+                    # ∇F = [∂F/∂x, ∂F/∂y, ∂F/∂z] = [-df/dx, -df/dy, 1]
                     dz_dx = (Z_draw[i, j+1] - Z_draw[i, j-1]) / (2 * dx_draw)
                     dz_dy = (Z_draw[i+1, j] - Z_draw[i-1, j]) / (2 * dy_draw)
                     normal = np.array([-dz_dx, -dz_dy, 1.0])
@@ -108,6 +121,8 @@ class MathematicalSurface(BaseShape):
                     normal = np.array([0.0, 0.0, 1.0])
                 normals.append(normal)
                 
+                # h là độ cao đã được chuẩn hóa về [0, 1].
+                # Từ đó ta suy ra màu theo độ cao để nhìn trực quan phần lồi/lõm của bề mặt.
                 h = (Z_draw[i, j] + 2.0) / 4.0
                 colors.append([
                     0.2 + 0.8 * h,
@@ -123,17 +138,28 @@ class MathematicalSurface(BaseShape):
         indices = []
         for i in range(self.resolution - 1):
             for j in range(self.resolution - 1):
+                # v0 = 0*4 + 0 = 0
+                # v1 = 0*4 + 1 = 1  
+                # v2 = 1*4 + 0 = 4
+                # v3 = 1*4 + 1 = 5
+                # Triangles: [0, 1, 4] và [4, 1, 5]
+
                 v0 = i * self.resolution + j
                 v1 = i * self.resolution + (j + 1)
                 v2 = (i + 1) * self.resolution + j
                 v3 = (i + 1) * self.resolution + (j + 1)
                 
+                # Mỗi ô vuông của lưới được tách thành 2 tam giác.
+                # Đây là cách chuẩn để GPU render bề mặt bằng primitive tam giác.
                 indices.extend([v0, v1, v2])
                 indices.extend([v2, v1, v3])
         
         self.indices = np.array(indices, dtype=np.int32)
 
     def _generate_texcoords(self):
+        # UV của MathematicalSurface được gán theo lưới đều:
+        # cột -> u, hàng -> v.
+        # Cách này phù hợp vì mesh bản chất đã là một grid trên miền x-y.
         texcoords = []
         for i in range(self.resolution):
             v = i / max(self.resolution - 1, 1)

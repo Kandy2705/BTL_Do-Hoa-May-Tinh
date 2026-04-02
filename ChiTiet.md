@@ -65,8 +65,8 @@ def run(self) -> None:
                     self.model.sgd_step()
         
         # 6. Tính ma trận View/Projection
-        view = self.view.trackball.view_matrix()
-        projection = self.view.trackball.projection_matrix(...)
+        view = self.view.trackball().view_matrix()
+        projection = self.view.trackball().projection_matrix(...)
         
         # 7. Render
         self.view.draw_coordinate_system(...)

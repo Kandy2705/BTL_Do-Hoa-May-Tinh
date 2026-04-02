@@ -21,6 +21,8 @@ class AppModel:
 
     def __init__(self) -> None:
         from components.scene import Scene
+        # Khối state này mô tả "ứng dụng đang ở đâu":
+        # đang chọn category nào, shape nào, shader nào, object nào...
         self.selected_idx: int = -1  # -1 means no shape selected
         self.selected_category: int = 5  # 5: Normal mode (default)
         self.selected_shader: int = 0
@@ -42,6 +44,8 @@ class AppModel:
         self.active_tool = 'select'
         
         # === SGD Visualization State ===
+        # Toàn bộ phần BTL 1 - Phần 2 được giữ state tập trung ở đây
+        # để controller và viewer đều đọc cùng một nguồn dữ liệu.
         self.sgd_visualizer = None
         self.sgd_loss_function = "Himmelblau"
         self.sgd_learning_rate = 0.001
@@ -86,7 +90,6 @@ class AppModel:
             "mesh_renderer": {"shader": 0, "texture": "", "color": [1.0, 0.5, 0.0]}
         }
 
-    @property
     def menu_options(self) -> List[str]:
         if self.selected_category == 0:  # 2D
             return [
@@ -124,7 +127,6 @@ class AppModel:
         else:
             return ["SGD Visualization"]
 
-    @property
     def shader_names(self) -> List[str]:
         return ["Solid Color", "Gouraud", "Phong", "Rainbow Interpolation"]
 
@@ -166,6 +168,7 @@ class AppModel:
             return [("", "")]
 
     def _shader_paths(self) -> ShaderPaths:
+        # Hàm này ánh xạ shader mode đang chọn sang cặp file shader tương ứng.
         if self.selected_shader == 0:
             return ("./shaders/color_interp.vert", "./shaders/color_interp.frag")
         if self.selected_shader == 1:
@@ -175,6 +178,8 @@ class AppModel:
         return _default_shader_paths()
 
     def load_active_drawable(self) -> None:
+        # Đây là hàm tải lại shape đang được preview ở menu bên trái.
+        # Ý tưởng là: người dùng đổi shape/shader/category -> tạo lại drawable mới cho sạch state.
         self.active_drawable = None
         self.drawables: List[Any] = []
 
@@ -189,6 +194,8 @@ class AppModel:
             return
 
         try:
+            # Import động giúp cùng một code có thể tải nhiều shape khác nhau
+            # chỉ dựa trên tên module và tên class.
             module = importlib.import_module(module_name)
             shape_cls = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
@@ -199,6 +206,8 @@ class AppModel:
         
         if class_name == "MathematicalSurface":
             try:
+                # Với MathematicalSurface, người dùng nhập chuỗi công thức.
+                # Ở đây chuỗi đó được biến thành hàm f(x, y) để generate mesh.
                 import numpy as np
                 safe_dict = {
                     'x': None, 'y': None,
@@ -225,6 +234,7 @@ class AppModel:
             drawable = shape_cls(vert_shader, frag_shader)
             
         drawable.setup()
+        # Mode 3 đang là Rainbow Interpolation trên standard shader.
         if hasattr(drawable, 'render_mode') and self.selected_shader == 3:
             drawable.render_mode = 3
         self.drawables.append(drawable)
@@ -271,6 +281,8 @@ class AppModel:
             self.object_type = obj_type
 
     def _sync_scene_object_visuals(self, scene_obj) -> None:
+        # Hàm này đồng bộ dữ liệu "mức object" xuống "mức drawable":
+        # shader, màu, texture, flat shading...
         drawable = getattr(scene_obj, 'drawable', None)
         if drawable is None:
             return
@@ -296,7 +308,8 @@ class AppModel:
         from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
         import numpy as np
         
-        # 1. Khởi tạo đúng class
+        # 1. Tạo đúng loại GameObject theo nhu cầu của người dùng.
+        # Mesh, light, camera đều được đưa về cùng mô hình scene object để quản lý thống nhất.
         if obj_type in ["3d", "custom_model"]:
             new_obj = GameObjectOBJ(name)
             
@@ -311,7 +324,7 @@ class AppModel:
             if shape3d_path not in sys.path:
                 sys.path.insert(0, shape3d_path)
             
-            # Map shape names to classes
+            # Map tên hiển thị trên UI sang class thực tế bên thư mục geometry/3d.
             shape_classes = {
                 "Cube": "cube3d.Cube",
                 "Sphere (Tetrahedron)": "sphere_tetrahedron3d.SphereTetrahedron",
@@ -372,7 +385,8 @@ class AppModel:
             
         elif obj_type == "math":
             new_obj = GameObjectMath(name)
-            # Create MathematicalSurface drawable
+            # MathematicalSurface cũng là một object trong scene,
+            # chỉ khác ở chỗ mesh của nó được sinh từ hàm z = f(x, y).
             vert_shader = "./shaders/standard.vert"
             frag_shader = "./shaders/standard.frag"
             

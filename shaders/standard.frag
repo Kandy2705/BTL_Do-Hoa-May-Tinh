@@ -17,7 +17,7 @@ uniform int u_render_mode;
 uniform int u_display_mode;
 uniform float u_cam_far;
 uniform mat4 view;
-uniform float u_shininess;   // ← THÊM DÒNG NÀY
+uniform float u_shininess;   //sự sáng bóng của 1 vật
 
 // --- HỆ THỐNG NHIỀU ĐÈN ---
 #define MAX_LIGHTS 4
@@ -29,6 +29,9 @@ uniform bool u_light_active[MAX_LIGHTS];
 uniform float u_light_range;          // ← THÊM: khoảng cách tối đa của đèn
 
 vec3 compute_face_normal() {
+    // dFdx / dFdy cho biết fragment hiện tại thay đổi theo hai hướng màn hình như thế nào.
+    // Với bề mặt 3D, tích có hướng cross(dFdx, dFdy) sẽ cho vector pháp tuyến của mặt.
+    // Đây là cách rất tiện để tạo "flat normal" theo từng tam giác ngay trong fragment shader.
     vec3 dx = dFdx(vertPos);
     vec3 dy = dFdy(vertPos);
     vec3 face_normal = normalize(cross(dx, dy));
@@ -45,6 +48,10 @@ vec3 compute_face_normal() {
 }
 
 vec3 compute_phong_lighting(vec3 surface_normal) {
+    // Công thức Phong ở đây tách làm 3 phần:
+    // 1. ambient  : ánh sáng nền tối thiểu
+    // 2. diffuse  : max(dot(N, L), 0) theo định luật Lambert
+    // 3. specular : pow(max(dot(R, V), 0), shininess) để tạo highlight bóng
     vec3 N = normalize(surface_normal);
     vec3 V = normalize(-vertPos);
 
@@ -57,6 +64,8 @@ vec3 compute_phong_lighting(vec3 surface_normal) {
         vec4 lightPosView = view * vec4(u_light_pos[i], 1.0);
         vec3 L = normalize(lightPosView.xyz - vertPos);
 
+        // attenuation là công thức giảm cường độ theo khoảng cách.
+        // Nó mô phỏng thực tế là vật càng xa đèn thì nhận ánh sáng càng yếu.
         float distance = length(lightPosView.xyz - vertPos);
         float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);
         attenuation *= clamp(1.0 - distance / u_light_range, 0.0, 1.0);
@@ -85,7 +94,11 @@ void main() {
     }
     
     if (u_display_mode == 1) {
+        // Depth map ở đây lấy độ sâu theo trục nhìn của camera.
+        // Sau đó chuẩn hóa về [0, 1] bằng far plane để đổi thành mức xám.
         float dist = -vertPos.z;
+        // chuẩn hoá (0,1) u_cam_far là khoảng xa nhất camera nhìn thấy; 
+        // dist là độ sâu hiện tại
         float normalized_depth = clamp(dist / u_cam_far, 0.0, 1.0);
         float color_val = 1.0 - normalized_depth;
         fragColor = vec4(vec3(color_val), 1.0);
@@ -95,6 +108,8 @@ void main() {
     vec3 lighting;
     
     if (u_use_flat_color) {
+        // Flat shading đúng nghĩa: vẫn dùng lighting,
+        // nhưng normal được lấy theo từng mặt chứ không nội suy theo đỉnh.
         lighting = compute_phong_lighting(compute_face_normal());
     }
     else if (u_render_mode == 1) {

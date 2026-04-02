@@ -27,7 +27,7 @@ class MainMenu:
                 if imgui.begin_menu("2D Shapes"):
                     original_cat = model.selected_category
                     model.selected_category = 0 
-                    for idx, name in enumerate(model.menu_options):
+                    for idx, name in enumerate(model.menu_options()):
                         if imgui.menu_item(name)[0]:
                             actions['category_changed'] = 0
                             actions['shape_changed'] = idx
@@ -37,7 +37,7 @@ class MainMenu:
                 if imgui.begin_menu("3D Shapes"):
                     original_cat = model.selected_category
                     model.selected_category = 1
-                    for idx, name in enumerate(model.menu_options):
+                    for idx, name in enumerate(model.menu_options()):
                         if imgui.menu_item(name)[0]:
                             actions['category_changed'] = 1
                             actions['shape_changed'] = idx
@@ -59,7 +59,7 @@ class MainMenu:
                 if imgui.begin_menu("Optimization (SGD)"):
                     original_cat = model.selected_category
                     model.selected_category = 4
-                    for idx, name in enumerate(model.menu_options):
+                    for idx, name in enumerate(model.menu_options()):
                         if imgui.menu_item(name)[0]:
                             actions['category_changed'] = 4
                             actions['shape_changed'] = idx

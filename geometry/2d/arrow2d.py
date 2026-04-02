@@ -23,16 +23,14 @@ class Arrow(BaseShape):
         self.frag_shader = frag_shader
         self.vertices = self._generate_arrow()  # Tạo đỉnh mũi tên
         
-        # --- BIẾN TRẠNG THÁI SIÊU SHADER ---
         self.use_flat_color = False  # Có dùng màu phẳng không
         self.flat_color = np.array([1.0, 1.0, 1.0], dtype=np.float32)  # Màu phẳng mặc định (trắng)
         self.use_texture = False  # Có dùng texture không
         self.texture_id = None  # ID texture
-        self.render_mode = 0  # 2D nên mặc định là 0 (Solid Color - phẳng lỳ)
+        self.render_mode = 2  # 2D nên mặc định là 2 (Phong Shading)
 
         self.vertices = np.array(self.vertices, dtype=np.float32)
 
-        # Thuật toán thông minh: Khối nào thiếu Normal, Color hay UV sẽ tự động được sinh ra!
         if not hasattr(self, 'normals') or self.normals is None:
             # Vector pháp tuyến cho 2D: hướng ra ngoài mặt phẳng (0, 0, 1)
             self.normals = np.array([[0.0, 0.0, 1.0]] * len(self.vertices), dtype=np.float32)
@@ -59,12 +57,6 @@ class Arrow(BaseShape):
 
     def _generate_arrow(self):
         """Tạo các đỉnh của hình mũi tên 2D"""
-        # Mũi tên gồm 4 phần:
-        # 1-2: thân trái (vertical line)
-        # 3-4: thân phải (vertical line)  
-        # 5: mũi tên trên (horizontal line)
-        # 6: mũi tên phải (diagonal line)
-        # 7: mũi tên trái (diagonal line)
         vertices = np.array([
             [-2, -1, 0],  # Đỉnh 1: thân trái dưới
             [-2,  1, 0],  # Đỉnh 2: thân trái trên
@@ -103,6 +95,7 @@ class Arrow(BaseShape):
             # Lật ảnh theo chiều dọc (OpenGL yêu cầu origin ở dưới cùng)
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
             # Chuyển ảnh sang raw bytes
+            # "raw" = lấy dữ liệu pixel thô, "RGBA" = định dạng màu, 0 = bước nhảy, -1 = số hàng
             img_data = img.tobytes("raw", "RGBA", 0, -1)
             
             # Tạo texture ID nếu chưa có
@@ -170,7 +163,7 @@ class Arrow(BaseShape):
         # --- HỆ THỐNG ĐA NGUỒN SÁNG (MULTI-LIGHTING) ---
         lights = getattr(self, 'scene_lights', [])
         loc_num_lights = GL.glGetUniformLocation(self.shader.render_idx, "u_num_lights")
-        if loc_num_lights != -1: GL.glUniform1i(loc_num_lights, len(lights))
+        if loc_num_lights != -1: GL.glUniform1i(loc_num_lights, len(lights)) # Hàm gửi dữ liệu từ CPU lên GPU shader
         
         for i, l in enumerate(lights[:4]): # Hỗ trợ tối đa 4 nguồn sáng cùng lúc
             GL.glUniform3f(GL.glGetUniformLocation(self.shader.render_idx, f"u_light_pos[{i}]"), *l.position)
@@ -181,7 +174,6 @@ class Arrow(BaseShape):
         # Kích hoạt VAO và vẽ
         self.vao.activate()
         
-        # TRÍ TUỆ NHÂN TẠO TỰ NHẬN DIỆN CÁCH VẼ
         if hasattr(self, 'indices') and self.indices is not None and len(self.indices) > 0:
             # Vẽ theo indices (nếu có)
             GL.glDrawElements(GL.GL_TRIANGLES, len(self.indices), GL.GL_UNSIGNED_INT, None)
