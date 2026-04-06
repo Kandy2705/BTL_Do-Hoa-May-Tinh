@@ -34,7 +34,8 @@ class InspectorPanel:
                 1: "3D Shapes", 
                 2: "Mathematical Surface",
                 3: "Model from file",
-                4: "SGD Visualization"
+                4: "SGD Visualization",
+                6: "BTL 2 - Synthetic Road Scene"
             }
             mode_name = mode_names.get(model.selected_category, "Unknown")
             imgui.text(f"Current Mode: {mode_name}")
@@ -45,6 +46,8 @@ class InspectorPanel:
                 options = model.menu_options()
                 if model.selected_idx >= 0 and model.selected_idx < len(options):
                     imgui.text(f"Shape: {options[model.selected_idx]}")
+            elif model.selected_category == 6:
+                imgui.text_wrapped("Mode này nối BTL 1 và BTL 2: BTL 1 cung cấp nền tảng đồ họa tương tác, còn BTL 2 dùng pipeline render đa pass để xuất dữ liệu huấn luyện.")
             
             imgui.end()
             return actions

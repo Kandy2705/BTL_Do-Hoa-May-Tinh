@@ -54,6 +54,13 @@ class AppModel:
         self.sgd_max_iterations = 10000
         self.sgd_simulation_speed = 1
         self.sgd_show_trajectory = True
+        self.sgd_show_projected_trajectory = True
+        self.sgd_show_drop_lines = True
+        self.sgd_show_contours = True
+        self.sgd_view_mode = "combined"  # surface / contour / combined
+        self.sgd_trail_width = 1.0
+        self.sgd_hover_enabled = True
+        self.sgd_hover_info = None
         self.sgd_wireframe_mode = 0  # 0: fill, 1: wireframe, 2: point
         self.sgd_optimizers_enabled = {
             'GD': True,
@@ -77,6 +84,19 @@ class AppModel:
         
         # --- THÊM DÒNG NÀY: Công tắc chuyển đổi RGB / Depth Map ---
         self.display_mode = 0  # 0: RGB tiêu chuẩn, 1: Depth Map
+
+        # === BTL 2 Synthetic Dataset Bridge State ===
+        # Các state này là chiếc cầu nối giữa app tương tác của BTL 1
+        # và pipeline sinh dataset tự động của BTL 2 trong thư mục btl2/.
+        self.btl2_config_path: str = "configs/btl2/default.yaml"
+        self.btl2_output_dir: str = "outputs/btl2/demo_dataset"
+        self.btl2_num_frames: int = 20
+        self.btl2_seed: int = 42
+        self.btl2_source_mode: str = "current_scene"
+        self.btl2_last_status: str = "Chưa chạy BTL 2"
+        self.btl2_last_result: Dict[str, Any] = {}
+        self.btl2_scene_camera_count: int = 0
+        self.btl2_scene_renderable_count: int = 0
         
         # Initialize Scene
         self.scene = Scene()
@@ -124,6 +144,8 @@ class AppModel:
             return [
                 "Model from .obj/.ply file",
             ]
+        elif self.selected_category == 6:
+            return ["Synthetic Road Scene Generator"]
         else:
             return ["SGD Visualization"]
 
@@ -164,6 +186,8 @@ class AppModel:
             return [
                 ("geometry.model_loader3d", "ModelLoader"),
             ]
+        elif self.selected_category == 6:  # BTL 2 bridge mode
+            return [("", "")]
         else:  # SGD
             return [("", "")]
 
@@ -274,6 +298,87 @@ class AppModel:
             # Update drawable texture if active drawable exists
             if self.active_drawable and hasattr(self.active_drawable, 'set_texture'):
                 self.active_drawable.set_texture(filename)
+
+    def sync_btl2_config(self) -> None:
+        """Đọc config BTL 2 để panel trong app cũ phản ánh đúng file YAML hiện tại."""
+        from btl2.utils.io import load_yaml
+
+        cfg = load_yaml(self.btl2_config_path)
+        if cfg:
+            self.btl2_output_dir = cfg.get("output_dir", self.btl2_output_dir)
+            self.btl2_num_frames = int(cfg.get("num_frames", self.btl2_num_frames))
+            self.btl2_seed = int(cfg.get("seed", self.btl2_seed))
+        self.refresh_btl2_scene_summary()
+
+    def refresh_btl2_scene_summary(self) -> None:
+        """Đếm nhanh scene hiện tại có bao nhiêu camera và object render được cho BTL 2."""
+        self.btl2_scene_camera_count = len([obj for obj in self.scene.objects if hasattr(obj, 'camera_fov')])
+        self.btl2_scene_renderable_count = len(
+            [obj for obj in self.scene.objects if hasattr(obj, 'drawable') and getattr(obj, 'drawable', None) is not None]
+        )
+
+    def run_btl2_generator(self) -> dict[str, Any]:
+        """Gọi pipeline BTL 2 ngay từ app BTL 1 để hai phần liên thông với nhau."""
+        from btl2.app import SyntheticRoadApp
+        from btl2.utils.io import load_yaml
+
+        cfg = load_yaml(self.btl2_config_path)
+        cfg["output_dir"] = self.btl2_output_dir
+        cfg["num_frames"] = int(self.btl2_num_frames)
+        cfg["seed"] = int(self.btl2_seed)
+
+        app = SyntheticRoadApp(cfg)
+        try:
+            summaries = app.generate_dataset(int(self.btl2_num_frames))
+        finally:
+            app.close()
+
+        self.btl2_last_result = {
+            "config_path": self.btl2_config_path,
+            "output_dir": self.btl2_output_dir,
+            "num_frames": int(self.btl2_num_frames),
+            "seed": int(self.btl2_seed),
+            "generated_frames": len(summaries),
+            "first_frame": summaries[0] if summaries else None,
+        }
+        self.btl2_last_status = f"Đã sinh {len(summaries)} frame vào {self.btl2_output_dir}"
+        return self.btl2_last_result
+
+    def run_btl2_from_current_scene(self) -> dict[str, Any]:
+        """Xuất dataset trực tiếp từ scene đang dựng trong BTL 1 qua các camera đã đặt."""
+        from btl2.app import SyntheticRoadApp
+        from btl2.utils.io import load_yaml
+
+        self.refresh_btl2_scene_summary()
+        cfg = load_yaml(self.btl2_config_path)
+        cfg["output_dir"] = self.btl2_output_dir
+        cfg["num_frames"] = int(self.btl2_num_frames)
+        cfg["seed"] = int(self.btl2_seed)
+
+        app = SyntheticRoadApp(cfg)
+        try:
+            summaries = app.generate_from_btl1_scene(
+                self.scene.objects,
+                num_frames=int(self.btl2_num_frames),
+                base_seed=int(self.btl2_seed),
+            )
+        finally:
+            app.close()
+
+        self.btl2_last_result = {
+            "mode": "current_scene",
+            "config_path": self.btl2_config_path,
+            "output_dir": self.btl2_output_dir,
+            "num_frames": len(summaries),
+            "seed": int(self.btl2_seed),
+            "generated_frames": len(summaries),
+            "first_frame": summaries[0] if summaries else None,
+        }
+        self.btl2_last_status = (
+            f"Đã xuất {len(summaries)} frame từ scene BTL 1 qua các camera đã đặt "
+            f"(không tính camera mặc định 0) vào {self.btl2_output_dir}"
+        )
+        return self.btl2_last_result
 
     def set_object_type(self, obj_type: str) -> None:
         """Set object type: 'mesh', 'light', or 'camera'"""
@@ -644,8 +749,16 @@ class AppModel:
         
         x_range = loss_func.domain_range
         y_range = loss_func.domain_range
+        if self.sgd_loss_function == "Himmelblau":
+            x_range = (-6.0, 6.0)
+            y_range = (-6.0, 6.0)
         
-        self.sgd_visualizer = SGDVisualizer(loss_func, x_range=x_range, y_range=y_range, resolution=80)
+        self.sgd_visualizer = SGDVisualizer(loss_func, x_range=x_range, y_range=y_range, resolution=180)
+        self.sgd_visualizer.show_contours = self.sgd_show_contours
+        self.sgd_visualizer.show_drop_lines = self.sgd_show_drop_lines
+        self.sgd_visualizer.show_projected_trajectory = self.sgd_show_projected_trajectory
+        self.sgd_visualizer.view_mode = self.sgd_view_mode
+        self.sgd_visualizer.trail_width_scale = max(0.2, float(self.sgd_trail_width))
         
         for opt_name, opt_type in [('GD', 'GD'), ('SGD', 'SGD'), ('MiniBatch', 'MiniBatch'), 
                                     ('Momentum', 'Momentum'), ('Nesterov', 'Nesterov'), ('Adam', 'Adam')]:

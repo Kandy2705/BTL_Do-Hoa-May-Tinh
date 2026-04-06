@@ -68,7 +68,11 @@ class MainMenu:
                 imgui.end_menu()
 
             if imgui.begin_menu("BTL 2"):
-                if imgui.menu_item("Setup Road Scene")[0]: actions['category_changed'] = 4
+                if imgui.menu_item("Synthetic Road Scene Generator")[0]:
+                    actions['category_changed'] = 6
+                if imgui.menu_item("Generate Demo Dataset")[0]:
+                    actions['category_changed'] = 6
+                    actions['btl2_generate'] = True
                 if imgui.begin_menu("Add Traffic Object"):
                     if imgui.menu_item("Main Vehicle")[0]: pass
                     if imgui.menu_item("Pedestrian")[0]: pass
