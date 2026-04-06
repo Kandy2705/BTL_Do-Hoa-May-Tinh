@@ -101,7 +101,8 @@ class HierarchyPanel:
                 1: "3D Shapes", 
                 2: "Mathematical Surface",
                 3: "Model from file",
-                4: "SGD Visualization"
+                4: "SGD Visualization",
+                6: "BTL 2 - Synthetic Road Scene"
             }
             mode_name = mode_names.get(model.selected_category, "Unknown")
             imgui.text(f"Mode: {mode_name}")
@@ -110,6 +111,8 @@ class HierarchyPanel:
                 imgui.text("SGD Optimizers:")
                 for name in model.sgd_visualizer.optimizers.keys():
                     imgui.text(f"  - {name}")
+            elif model.selected_category == 6:
+                imgui.text_wrapped("BTL 2 tái sử dụng ý tưởng camera, object và shader-based rendering từ BTL 1 để sinh dataset RGB/Depth/Mask/BBox.")
 
         imgui.end()
         

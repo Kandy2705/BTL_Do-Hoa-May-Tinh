@@ -198,6 +198,8 @@ class AppController:
             # Initialize SGD visualizer when switching to category 4
             if new_cat == 4 and self.model.sgd_visualizer is None:
                 self.model.init_sgd_visualizer()
+            if new_cat == 6:
+                self.model.sync_btl2_config()
 
             self.model.select_hierarchy_object(-1)
         
@@ -429,6 +431,29 @@ class AppController:
             
         # SGD actions are now handled by SGDPanel and model methods
 
+        if 'btl2_sync_config' in actions:
+            self.model.sync_btl2_config()
+            print(f"Đã đồng bộ BTL 2 từ config: {self.model.btl2_config_path}")
+
+        if 'btl2_refresh_scene' in actions:
+            self.model.refresh_btl2_scene_summary()
+            print(
+                "BTL 2 scene summary:",
+                f"cameras={self.model.btl2_scene_camera_count},",
+                f"renderables={self.model.btl2_scene_renderable_count}"
+            )
+
+        if 'btl2_generate' in actions:
+            try:
+                if getattr(self.model, 'btl2_source_mode', 'current_scene') == 'current_scene':
+                    result = self.model.run_btl2_from_current_scene()
+                else:
+                    result = self.model.run_btl2_generator()
+                print(f"BTL 2 OK: {result['generated_frames']} frame -> {result['output_dir']}")
+            except Exception as exc:
+                self.model.btl2_last_status = f"Lỗi khi chạy BTL 2: {exc}"
+                print(self.model.btl2_last_status)
+
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
         import platform
@@ -601,6 +626,9 @@ class AppController:
                     self.model.init_sgd_visualizer()
                 if self.model.selected_category == 4:
                     self.coord_system.set_mode(is_3d=True)  # XY grid for SGD
+                elif self.model.selected_category == 6:
+                    self.model.sync_btl2_config()
+                    self.coord_system.set_mode(is_3d=True)
                 elif self.model.selected_category == 0 or self.model.selected_category == 2:
                     self.coord_system.set_mode(is_3d=True)
 
@@ -653,9 +681,10 @@ class AppController:
             view = self.view.trackball.view_matrix()
             projection = self.view.trackball.projection_matrix(glfw.get_window_size(self.view.win))
             
-            # Draw coordinate system (including grid)
-            GL.glUseProgram(self.coord_shader.render_idx)
-            self.view.draw_coordinate_system(self.coord_system, projection, view)
+            # SGD có mặt loss + contour riêng, nên bỏ world grid mặc định để khung hình sạch hơn.
+            if self.model.selected_category != 4:
+                GL.glUseProgram(self.coord_shader.render_idx)
+                self.view.draw_coordinate_system(self.coord_system, projection, view)
             
             self.view.draw_drawables(self.model.drawables, 
                 self.model.scene.objects,

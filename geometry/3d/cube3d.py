@@ -42,8 +42,14 @@ class Cube(BaseShape):
             [[ 0.0,  1.0,  0.0]] * 4 + [[ 0.0, -1.0,  0.0]] * 4, dtype=np.float32
         )
 
-        uv_face = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
-        self.texcoords = np.array(uv_face * 6, dtype=np.float32)
+        self.texcoords = np.array([
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Front
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Back
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Left
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Right
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Top
+            [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],  # Bottom
+        ], dtype=np.float32)
         self.colors = np.array([[1.0, 1.0, 1.0]] * 24, dtype=np.float32)
 
         indices = []
@@ -71,7 +77,7 @@ class Cube(BaseShape):
             return
         try:
             img = Image.open(filepath).convert("RGBA")
-            #img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
             
             if self.texture_id is None:

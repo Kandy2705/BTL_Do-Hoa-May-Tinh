@@ -4,12 +4,12 @@ import glfw
 
 class SGDPanel:
     OPTIMIZER_COLORS = {
-        'GD': (1.0, 0.2, 0.2),
-        'SGD': (0.2, 1.0, 0.2),
-        'MiniBatch': (0.2, 0.2, 1.0),
-        'Momentum': (1.0, 1.0, 0.2),
-        'Nesterov': (1.0, 0.5, 0.0),
-        'Adam': (1.0, 0.2, 1.0),
+        'GD': (0.90, 0.28, 0.24),
+        'SGD': (0.18, 0.72, 0.44),
+        'MiniBatch': (0.20, 0.46, 0.90),
+        'Momentum': (0.95, 0.78, 0.20),
+        'Nesterov': (0.95, 0.52, 0.16),
+        'Adam': (0.72, 0.24, 0.92),
     }
     
     @staticmethod
@@ -131,6 +131,46 @@ class SGDPanel:
             changed_traj, new_traj = imgui.checkbox("Show Trajectory", model.sgd_show_trajectory)
             if changed_traj:
                 model.sgd_show_trajectory = new_traj
+
+            changed_proj, new_proj = imgui.checkbox("Show Projected Path", model.sgd_show_projected_trajectory)
+            if changed_proj:
+                model.sgd_show_projected_trajectory = new_proj
+
+            changed_drop, new_drop = imgui.checkbox("Show Vertical Drop Lines", model.sgd_show_drop_lines)
+            if changed_drop:
+                model.sgd_show_drop_lines = new_drop
+
+            changed_contours, new_contours = imgui.checkbox("Show Contours", model.sgd_show_contours)
+            if changed_contours:
+                model.sgd_show_contours = new_contours
+
+            changed_trail_w, new_trail_w = imgui.drag_float("Trail Width", model.sgd_trail_width, 0.02, 0.3, 3.0, "%.2f")
+            if changed_trail_w:
+                model.sgd_trail_width = max(0.3, min(3.0, new_trail_w))
+                if model.sgd_visualizer:
+                    model.sgd_visualizer.trail_width_scale = model.sgd_trail_width
+
+        if imgui.collapsing_header("Visualization", imgui.TREE_NODE_DEFAULT_OPEN):
+            view_modes = ["Surface 3D", "Contour Map", "Combined"]
+            internal_modes = ["surface", "contour", "combined", "interactive"]
+            current_view = internal_modes.index(model.sgd_view_mode) if model.sgd_view_mode in internal_modes else 2
+            changed_view, new_view = imgui.combo("View Mode", current_view, view_modes)
+            if changed_view:
+                model.sgd_view_mode = internal_modes[new_view]
+
+            changed_hover, new_hover = imgui.checkbox("Hover readout x,y,z", getattr(model, 'sgd_hover_enabled', True))
+            if changed_hover:
+                model.sgd_hover_enabled = new_hover
+
+            imgui.text_colored("Loss Color Map", 0.80, 0.85, 0.95)
+            imgui.text_wrapped("Low loss = xanh, high loss = do. Contour mode cho thay duong muc va duong di tung optimizer de phan tich hoi tu theo huong ung dung hon.")
+
+            hover = getattr(model, 'sgd_hover_info', None)
+            if hover:
+                imgui.separator()
+                imgui.text(f"Hover x: {hover['x']:.3f}")
+                imgui.text(f"Hover y: {hover['y']:.3f}")
+                imgui.text(f"Hover z: {hover['z']:.5f}")
         
         if imgui.collapsing_header("Statistics", imgui.TREE_NODE_DEFAULT_OPEN):
             stats = model.get_sgd_stats()
@@ -161,6 +201,7 @@ class SGDPanel:
         imgui.text("- W: Toggle Wireframe")
         imgui.text("- Space: Start/Stop")
         imgui.text("- R: Reset")
+        imgui.text("- Combined view: nhin ca mat loss va contour")
         
         imgui.end()
         return actions

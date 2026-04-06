@@ -3,7 +3,8 @@ import OpenGL.GL as gl
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 import itertools
-from libs.transform import Trackball
+import numpy as np
+from libs.transform import Trackball, lookat, ortho
 from PIL import Image
 
 # Import UI components
@@ -107,9 +108,14 @@ class Viewer:
 
     # Các hàm callback giữ nguyên như code cũ của bạn...
     def _on_scroll(self, window, xoffset, yoffset):
+        if self._is_sgd_contour_locked():
+            return
         if self.scroll_callback: self.scroll_callback(window, xoffset, yoffset)
 
     def on_mouse_move(self, window, xpos, ypos):
+        if self._is_sgd_contour_locked():
+            self.last_mouse_pos = (xpos, ypos)
+            return
         # 1. CHUỘT PHẢI: Xoay Camera vòng vòng (Nhưng cũ)
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS:
             self.trackball.drag(self.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
@@ -147,6 +153,8 @@ class Viewer:
         self.last_mouse_pos = (xpos, ypos)
     
     def on_mouse_button(self, window, button, action, mods):
+        if self._is_sgd_contour_locked():
+            return
         if button == glfw.MOUSE_BUTTON_LEFT:
             if action == glfw.PRESS:
                 current_tool = getattr(self.model, 'active_tool', 'select')
@@ -197,8 +205,86 @@ class Viewer:
         self.imgui_impl.process_inputs()
 
     def begin_frame(self) -> None:
+        if self.model and self.model.selected_category == 4:
+            gl.glClearColor(0.5, 0.5, 0.5, 1.0)
+        else:
+            gl.glClearColor(0.1, 0.1, 0.1, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
         imgui.new_frame()
+
+    def _is_sgd_contour_locked(self):
+        if not self.model or self.model.selected_category != 4:
+            return False
+        return getattr(self.model, 'sgd_view_mode', '') in ('contour', 'interactive')
+
+    def _get_sgd_contour_camera(self, viewport_size):
+        width, height = viewport_size
+        aspect = max(width / max(height, 1), 1e-5)
+        # Mặt contour thật sự chỉ nằm trong vùng x,y khoảng [-2, 2].
+        # Giảm extent xuống một chút để hình ôm khung giữa hơn, đỡ bị lọt thỏm.
+        base_extent = 2.18
+        if aspect >= 1.0:
+            half_w = base_extent * aspect
+            half_h = base_extent
+        else:
+            half_w = base_extent
+            half_h = base_extent / aspect
+
+        projection = ortho(-half_w, half_w, -half_h, half_h, -20.0, 20.0)
+        view = lookat(np.array([0.0, 0.0, 18.0], dtype=np.float32),
+                      np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                      np.array([0.0, 0.5, 0.0], dtype=np.float32))
+        return view, projection
+
+    def _get_sgd_contour_inset_rect(self, gl_x, gl_y, gl_w, gl_h):
+        # Inset mini contour map cố định ở góc phải dưới của viewport scene.
+        if gl_w < 220 or gl_h < 180:
+            return None
+
+        margin = max(int(round(min(gl_w, gl_h) * 0.03)), 10)
+        max_w = gl_w - margin * 2
+        max_h = gl_h - margin * 2
+        if max_w <= 0 or max_h <= 0:
+            return None
+
+        inset_w = max(int(round(gl_w * 0.26)), 150)
+        inset_h = max(int(round(gl_h * 0.23)), 110)
+        inset_w = min(inset_w, max_w)
+        inset_h = min(inset_h, max_h)
+
+        if inset_w < 120 or inset_h < 90:
+            return None
+
+        inset_x = gl_x + gl_w - inset_w - margin
+        inset_y = gl_y + margin
+        return inset_x, inset_y, inset_w, inset_h
+
+    def _draw_sgd_contour_inset(self, sgd_visualizer, gl_x, gl_y, gl_w, gl_h,
+                                display_mode, cam_far,
+                                show_trajectory, show_projected_trajectory):
+        inset_rect = self._get_sgd_contour_inset_rect(gl_x, gl_y, gl_w, gl_h)
+        if inset_rect is None:
+            return
+
+        inset_x, inset_y, inset_w, inset_h = inset_rect
+        gl.glViewport(inset_x, inset_y, inset_w, inset_h)
+        gl.glScissor(inset_x, inset_y, inset_w, inset_h)
+        gl.glClearColor(0.12, 0.12, 0.12, 1.0)
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+
+        inset_view, inset_projection = self._get_sgd_contour_camera((inset_w, inset_h))
+        sgd_visualizer.draw(
+            inset_projection,
+            inset_view,
+            wireframe_mode=0,
+            display_mode=display_mode,
+            cam_far=cam_far,
+            show_trajectory=show_trajectory,
+            show_projected_trajectory=show_projected_trajectory,
+            show_drop_lines=False,
+            show_contours=True,
+            view_mode='contour',
+        )
 
     def end_frame(self) -> None:
         imgui.render()
@@ -209,19 +295,45 @@ class Viewer:
         # Đây là khối render chính của viewer:
         # lấy camera hiện tại, dựng ma trận view/projection,
         # thu thập đèn trong scene rồi gọi draw cho từng drawable.
-        view = self.trackball.view_matrix()
-        projection = self.trackball.projection_matrix(glfw.get_window_size(self.win))
+        win_w, win_h = glfw.get_window_size(self.win)
+        fb_w, fb_h = glfw.get_framebuffer_size(self.win)
+        viewport_rect = (315.0, 55.0, max(win_w - 635.0, 10.0), max(win_h - 255.0, 10.0))
+        vx, vy, vw, vh = viewport_rect
+
+        scale_x = fb_w / max(win_w, 1)
+        scale_y = fb_h / max(win_h, 1)
+        gl_x = int(round(vx * scale_x))
+        gl_w = max(int(round(vw * scale_x)), 1)
+        gl_h = max(int(round(vh * scale_y)), 1)
+        gl_y = max(int(round((win_h - (vy + vh)) * scale_y)), 0)
+
+        gl.glEnable(gl.GL_SCISSOR_TEST)
+        gl.glViewport(gl_x, gl_y, gl_w, gl_h)
+        gl.glScissor(gl_x, gl_y, gl_w, gl_h)
+
+        if self._is_sgd_contour_locked():
+            view, projection = self._get_sgd_contour_camera((gl_w, gl_h))
+        else:
+            view = self.trackball.view_matrix()
+            projection = self.trackball.projection_matrix((gl_w, gl_h))
 
         scene_lights = [obj for obj in scene_objects if hasattr(obj, 'light_intensity')]
         
         # === LẤY CÁC GIÁ TRỊ GLOBAL ĐỂ TRUYỀN VÀO SHADER ===
         display_mode = getattr(self.model, 'display_mode', 0)
         cam_far      = getattr(self.trackball, 'far', 100.0)
+        draw_sgd_inset = False
+        inset_show_trajectory = True
+        inset_show_projected = True
 
         # Draw SGD visualization if in SGD category
         if self.model and self.model.selected_category == 4 and self.model.sgd_visualizer:
             wireframe_mode = getattr(self.model, 'sgd_wireframe_mode', 0)
             show_trajectory = getattr(self.model, 'sgd_show_trajectory', True)
+            show_projected_trajectory = getattr(self.model, 'sgd_show_projected_trajectory', True)
+            show_drop_lines = getattr(self.model, 'sgd_show_drop_lines', True)
+            show_contours = getattr(self.model, 'sgd_show_contours', True)
+            view_mode = getattr(self.model, 'sgd_view_mode', "combined")
             self.model.sgd_visualizer.draw(
                 projection,
                 view,
@@ -229,7 +341,28 @@ class Viewer:
                 display_mode,
                 cam_far,
                 show_trajectory=show_trajectory,
+                show_projected_trajectory=show_projected_trajectory,
+                show_drop_lines=show_drop_lines,
+                show_contours=show_contours,
+                view_mode=view_mode,
             )
+            draw_sgd_inset = not self._is_sgd_contour_locked()
+            inset_show_trajectory = show_trajectory
+            inset_show_projected = show_projected_trajectory
+
+            if getattr(self.model, 'sgd_hover_enabled', True) and view_mode in ('contour', 'interactive', 'combined'):
+                mx, my = glfw.get_cursor_pos(self.win)
+                vx, vy, vw, vh = viewport_rect
+                inside = (vx <= mx <= vx + vw) and (vy <= my <= vy + vh)
+                if inside:
+                    hover = self.model.sgd_visualizer.pick_hover_info(mx, my, projection, view, viewport_rect)
+                    self.model.sgd_hover_info = hover
+                    if hover:
+                        self._draw_sgd_hover_overlay(hover)
+                else:
+                    self.model.sgd_hover_info = None
+            else:
+                self.model.sgd_hover_info = None
         else:
             # Draw regular drawables (mesh objects)
             for drawable in drawables:
@@ -281,6 +414,44 @@ class Viewer:
             if active_tool in ['move', 'rotate', 'scale']:
                 # Truyền vị trí của target vào để nó vẽ trục XYZ ra
                 self.gizmo.draw(projection, view, target.position, active_tool)
+
+        if draw_sgd_inset:
+            self._draw_sgd_contour_inset(
+                self.model.sgd_visualizer,
+                gl_x,
+                gl_y,
+                gl_w,
+                gl_h,
+                display_mode=display_mode,
+                cam_far=cam_far,
+                show_trajectory=inset_show_trajectory,
+                show_projected_trajectory=inset_show_projected,
+            )
+            # Khôi phục viewport/scissor scene chính để tránh ảnh hưởng các pass sau.
+            gl.glViewport(gl_x, gl_y, gl_w, gl_h)
+            gl.glScissor(gl_x, gl_y, gl_w, gl_h)
+
+        gl.glDisable(gl.GL_SCISSOR_TEST)
+        gl.glViewport(0, 0, fb_w, fb_h)
+
+    def _draw_sgd_hover_overlay(self, hover):
+        box_w, box_h = 155, 78
+        x = hover['screen_x'] + 14
+        y = hover['screen_y'] + 14
+
+        imgui.set_next_window_position(x, y)
+        imgui.set_next_window_size(box_w, box_h)
+        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.18, 0.18, 0.18, 0.88)
+        imgui.begin(
+            "SGDHoverOverlay",
+            flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE |
+                  imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_SAVED_SETTINGS | imgui.WINDOW_NO_INPUTS
+        )
+        imgui.text(f"x: {hover['x']:.3f}")
+        imgui.text(f"y: {hover['y']:.3f}")
+        imgui.text(f"z: {hover['z']:.5f}")
+        imgui.end()
+        imgui.pop_style_color()
                 
                 
 
@@ -385,5 +556,11 @@ class Viewer:
             from components.sgd_panel import SGDPanel
             sgd_actions = SGDPanel.draw(model)
             actions.update(sgd_actions)
+
+        # 8. BTL 2 BRIDGE PANEL
+        if model.selected_category == 6:
+            from components.btl2_panel import BTL2Panel
+            btl2_actions = BTL2Panel.draw(model)
+            actions.update(btl2_actions)
         
         return actions

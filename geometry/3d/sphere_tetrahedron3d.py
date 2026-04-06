@@ -94,14 +94,56 @@ class SphereTetrahedron(BaseShape):
         self._subdivide_with_colors(m, p, o, color_m, color_p, color_o, n - 1)
 
     def _generate_texcoords(self):
-        """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        """Spherical unwrap + seam fix để tránh kéo giãn texture mạnh qua đường nối."""
         norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
         norms[norms == 0] = 1.0 # Tránh chia cho 0
         norm_v = self.vertices / norms
         
         u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
-        v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
-        self.texcoords = np.column_stack((u, v)).astype(np.float32)
+        v = 0.5 - np.arcsin(np.clip(norm_v[:, 1], -1.0, 1.0)) / np.pi
+        texcoords = np.column_stack((u, v)).astype(np.float32)
+
+        for idx in range(0, len(texcoords), 3):
+            tri_u = texcoords[idx:idx + 3, 0]
+            if len(tri_u) == 3 and (tri_u.max() - tri_u.min()) > 0.5:
+                texcoords[idx:idx + 3, 0] = np.where(tri_u < 0.5, tri_u + 1.0, tri_u)
+
+        self.texcoords = texcoords
+
+    def _prepare_spherical_texture(self, img):
+        # Sphere mong đợi ảnh equirectangular 2:1.
+        # Với ảnh vuông 1:1 kiểu texture vật liệu, cần lặp ngang 2 lần để đi hết 360 độ.
+        # Nếu chỉ đệm nền thì ảnh thật chỉ chiếm nửa bề ngang của texture cầu.
+        # Những ảnh khác mới dùng cách đệm khung để giữ tỉ lệ.
+        width, height = img.size
+        if width <= 0 or height <= 0:
+            return img
+
+        ratio = width / float(height)
+        target_ratio = 2.0
+        if abs(ratio - target_ratio) < 0.12:
+            return img
+
+        if 0.85 <= ratio <= 1.15:
+            tiled = Image.new("RGBA", (width * 2, height))
+            tiled.paste(img, (0, 0))
+            tiled.paste(img, (width, 0))
+            return tiled
+
+        avg_color = np.array(img).reshape(-1, 4).mean(axis=0).astype(np.uint8)
+        background = tuple(int(v) for v in avg_color)
+
+        if ratio < target_ratio:
+            canvas_width = int(round(height * target_ratio))
+            canvas_height = height
+        else:
+            canvas_width = width
+            canvas_height = int(round(width / target_ratio))
+
+        canvas = Image.new("RGBA", (canvas_width, canvas_height), background)
+        offset = ((canvas_width - width) // 2, (canvas_height - height) // 2)
+        canvas.paste(img, offset)
+        return canvas
 
     def setup(self):
         # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal), 3 (UV)
@@ -117,7 +159,8 @@ class SphereTetrahedron(BaseShape):
             return
         try:
             img = Image.open(filepath).convert("RGBA")
-            #img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = self._prepare_spherical_texture(img)
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
             
             if self.texture_id is None:
@@ -125,7 +168,7 @@ class SphereTetrahedron(BaseShape):
                 
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
             GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)

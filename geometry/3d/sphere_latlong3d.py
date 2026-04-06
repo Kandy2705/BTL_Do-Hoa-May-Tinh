@@ -60,14 +60,52 @@ class SphereLatLong(BaseShape):
         return vertices, indices
 
     def _generate_texcoords(self):
-        """Ma thuật Auto UV Mapping (Spherical Projection)"""
+        """Lat-long sphere dùng UV cầu chuẩn, phù hợp nhất để áp ảnh equirectangular."""
         norms = np.linalg.norm(self.vertices, axis=1, keepdims=True)
         norms[norms == 0] = 1.0 # Tránh chia cho 0
         norm_v = self.vertices / norms
         
         u = 0.5 + np.arctan2(norm_v[:, 2], norm_v[:, 0]) / (2 * np.pi)
-        v = 0.5 - np.arcsin(norm_v[:, 1]) / np.pi
+        v = 0.5 - np.arcsin(np.clip(norm_v[:, 1], -1.0, 1.0)) / np.pi
         self.texcoords = np.column_stack((u, v)).astype(np.float32)
+
+    def _prepare_spherical_texture(self, img):
+        """Chuẩn hóa ảnh cho UV cầu.
+
+        - Texture cầu chuẩn mong đợi tỉ lệ 2:1.
+        - Nếu ảnh gần 1:1 (rất hay gặp ở texture vật liệu), cách hợp lý hơn là lặp ngang 2 lần
+          để phủ đủ 360 độ thay vì chèn khoảng trống.
+        - Các ảnh không vuông sẽ được đệm lên canvas 2:1 để giữ tỉ lệ, tránh kéo giãn quá mạnh.
+        """
+        width, height = img.size
+        if width <= 0 or height <= 0:
+            return img
+
+        ratio = width / float(height)
+        target_ratio = 2.0
+        if abs(ratio - target_ratio) < 0.12:
+            return img
+
+        if 0.85 <= ratio <= 1.15:
+            tiled = Image.new("RGBA", (width * 2, height))
+            tiled.paste(img, (0, 0))
+            tiled.paste(img, (width, 0))
+            return tiled
+
+        avg_color = np.array(img).reshape(-1, 4).mean(axis=0).astype(np.uint8)
+        background = tuple(int(v) for v in avg_color)
+
+        if ratio < target_ratio:
+            canvas_width = int(round(height * target_ratio))
+            canvas_height = height
+        else:
+            canvas_width = width
+            canvas_height = int(round(width / target_ratio))
+
+        canvas = Image.new("RGBA", (canvas_width, canvas_height), background)
+        offset = ((canvas_width - width) // 2, (canvas_height - height) // 2)
+        canvas.paste(img, offset)
+        return canvas
 
     def setup(self):
         # Bắt buộc tuân thủ layout: 0 (Pos), 1 (Color), 2 (Normal), 3 (UV)
@@ -84,7 +122,8 @@ class SphereLatLong(BaseShape):
             return
         try:
             img = Image.open(filepath).convert("RGBA")
-            #img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = self._prepare_spherical_texture(img)
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
             img_data = img.tobytes("raw", "RGBA", 0, -1)
             
             if self.texture_id is None:
@@ -92,7 +131,7 @@ class SphereLatLong(BaseShape):
                 
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.texture_id)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
             GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
