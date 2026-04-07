@@ -11,6 +11,24 @@ from libs.lighting import LightingManager
 
 
 class SGDVisualizer:
+    NORMAL_OPTIMIZER_COLORS = {
+        'GD': [0.90, 0.28, 0.24],
+        'SGD': [0.18, 0.72, 0.44],
+        'MiniBatch': [0.20, 0.46, 0.90],
+        'Momentum': [0.95, 0.78, 0.20],
+        'Nesterov': [0.95, 0.52, 0.16],
+        'Adam': [0.72, 0.24, 0.92],
+    }
+    # Palette phân biệt tốt hơn với người mù màu đỏ-lục (tham chiếu nhóm Okabe-Ito mở rộng).
+    COLORBLIND_OPTIMIZER_COLORS = {
+        'GD': [0.00, 0.45, 0.70],        # blue
+        'SGD': [0.80, 0.47, 0.65],       # reddish purple
+        'MiniBatch': [0.00, 0.62, 0.45], # bluish green
+        'Momentum': [0.95, 0.90, 0.25],  # yellow
+        'Nesterov': [0.90, 0.60, 0.00],  # orange
+        'Adam': [0.35, 0.35, 0.35],      # gray
+    }
+
     def __init__(self, loss_func, x_range=(-5, 5), y_range=(-5, 5), resolution=180):
         # loss_func là "hàm mục tiêu" cần tối ưu.
         # Từ loss này, visualizer sẽ:
@@ -25,14 +43,7 @@ class SGDVisualizer:
         
         self.optimizers = {}
         self.trajectories = {}
-        self.optimizer_colors = {
-            'GD': [0.90, 0.28, 0.24],
-            'SGD': [0.18, 0.72, 0.44],
-            'MiniBatch': [0.20, 0.46, 0.90],
-            'Momentum': [0.95, 0.78, 0.20],
-            'Nesterov': [0.95, 0.52, 0.16],
-            'Adam': [0.72, 0.24, 0.92],
-        }
+        self.optimizer_colors = dict(self.NORMAL_OPTIMIZER_COLORS)
         
         self.surface_vao = None
         self.surface_shader = None
@@ -88,6 +99,10 @@ class SGDVisualizer:
         
         # Khởi tạo xong state thì sinh luôn mesh của mặt loss.
         self._generate_surface()
+
+    def set_colorblind_palette(self, enabled=False):
+        palette = self.COLORBLIND_OPTIMIZER_COLORS if enabled else self.NORMAL_OPTIMIZER_COLORS
+        self.optimizer_colors = dict(palette)
     
     def _generate_surface(self):
         # BƯỚC 1: tạo lưới mẫu đều trên miền x-y.
@@ -336,6 +351,8 @@ class SGDVisualizer:
             'gradient_mag': 0.0,
             'step': 0,
             'history': [initial_pos.copy()],
+            'loss_history': [float(self.loss_func.compute(initial_pos[0], initial_pos[1]))],
+            'grad_history': [0.0],
             'running': False,
             'momentum_buffer': np.zeros(2, dtype=np.float32),
             'adam_m': np.zeros(2, dtype=np.float32),
@@ -484,6 +501,8 @@ class SGDVisualizer:
         opt['loss'] = self.loss_func.compute(opt['position'][0], opt['position'][1])
         opt['step'] += 1
         opt['history'].append(opt['position'].copy())
+        opt['loss_history'].append(float(opt['loss']))
+        opt['grad_history'].append(float(opt['gradient_mag']))
         self._update_marker_rotation(opt, prev_position, opt['position'])
     
     def update_trajectory(self, name):
@@ -617,7 +636,8 @@ class SGDVisualizer:
         opt['marker_rotation'] = rot @ opt['marker_rotation']
     
     def draw(self, projection, view, wireframe_mode=0, display_mode=0, cam_far=100.0, show_trajectory=True,
-             show_projected_trajectory=True, show_drop_lines=True, show_contours=True, view_mode='combined'):
+             show_projected_trajectory=True, show_drop_lines=True, show_contours=True, view_mode='combined',
+             replay_step=None):
         # BƯỚC 10: vẽ toàn bộ cảnh SGD theo thứ tự:
         # 1. vẽ mặt loss
         # 2. vẽ marker của từng optimizer
@@ -691,9 +711,22 @@ class SGDVisualizer:
         if draw_contours:
             self._draw_contours(projection, view)
         
+        replay_step_idx = None if replay_step is None else max(int(replay_step), 0)
+
         for name, opt in self.optimizers.items():
             # Mỗi optimizer là một quả cầu nhỏ đang chạy trên bề mặt loss.
-            pos = opt['position']
+            full_history = opt.get('history', [])
+            if len(full_history) == 0:
+                continue
+
+            if replay_step_idx is None:
+                draw_history = full_history
+                pos = opt['position']
+            else:
+                idx = min(replay_step_idx, len(full_history) - 1)
+                draw_history = full_history[:idx + 1]
+                pos = np.array(draw_history[-1], dtype=np.float32)
+
             dx, dy, dz = self.get_draw_coords(pos[0], pos[1])
             
             color = self.optimizer_colors.get(opt['type'], [1, 0, 1])
@@ -703,11 +736,11 @@ class SGDVisualizer:
                 self._draw_drop_line(dx, dy, dz, color, projection, view)
             self._draw_sphere(dx, dy, dz, color, projection, view, wireframe_mode, display_mode, cam_far, opt)
             
-            if show_trajectory and len(opt['history']) >= 2:
+            if show_trajectory and len(draw_history) >= 2:
                 if view_mode not in ('contour', 'interactive'):
-                    self._draw_trail(opt['history'], opt['type'], projection, view)
+                    self._draw_trail(draw_history, opt['type'], projection, view)
                 if show_projected_trajectory or view_mode in ('contour', 'interactive'):
-                    self._draw_trail_projection(opt['history'], opt['type'], projection, view)
+                    self._draw_trail_projection(draw_history, opt['type'], projection, view)
 
     def _draw_contours(self, projection, view):
         if self.contour_vao is None or len(self.contour_vertices) == 0:
@@ -949,6 +982,8 @@ class SGDVisualizer:
         opt['gradient_mag'] = 0.0
         opt['step'] = 0
         opt['history'] = [initial_pos.copy()]
+        opt['loss_history'] = [float(opt['loss'])]
+        opt['grad_history'] = [0.0]
         opt['momentum_buffer'] = np.zeros(2, dtype=np.float32)
         opt['adam_m'] = np.zeros(2, dtype=np.float32)
         opt['adam_v'] = np.zeros(2, dtype=np.float32)

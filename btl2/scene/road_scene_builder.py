@@ -14,7 +14,7 @@ from btl2.scene.randomizer import Randomizer
 from btl2.scene.scene import Scene
 from btl2.scene.scene_object import SceneObject
 from btl2.utils.colors import color_to_float, class_color
-from btl2.utils.constants import CLASS_TO_ID
+from btl2.utils.constants import CLASS_NAMES, CLASS_TO_ID
 
 
 @dataclass
@@ -33,9 +33,16 @@ class RoadSceneBuilder:
     def __init__(self, config: dict, asset_root: str | Path = "assets/models") -> None:
         self.config = config
         self.loader = ObjectLoader(asset_root)
+        scene_classes = self.config.setdefault("scene", {}).setdefault("classes", {})
+        # Backward compatibility with older configs that used "pedestrian".
+        if "person" not in scene_classes and "pedestrian" in scene_classes:
+            scene_classes["person"] = dict(scene_classes["pedestrian"])
         self.asset_specs = {
+            "person": AssetSpec("person", "person_mesh", self._first_available_asset("pedestrians", "people"), "cylinder"),
             "car": AssetSpec("car", "car_mesh", self._first_asset("vehicles"), "box"),
-            "pedestrian": AssetSpec("pedestrian", "pedestrian_mesh", self._first_asset("pedestrians"), "cylinder"),
+            "bus": AssetSpec("bus", "bus_mesh", self._first_available_asset("buses", "vehicles"), "box"),
+            "truck": AssetSpec("truck", "truck_mesh", self._first_available_asset("trucks", "vehicles"), "box"),
+            "motorbike": AssetSpec("motorbike", "motorbike_mesh", self._first_available_asset("motorbikes", "motorcycles", "vehicles"), "box"),
             "traffic_sign": AssetSpec("traffic_sign", "traffic_sign_mesh", self._first_asset("traffic_signs"), "box"),
             "traffic_light": AssetSpec("traffic_light", "traffic_light_mesh", self._first_asset("traffic_lights"), "box"),
         }
@@ -114,7 +121,7 @@ class RoadSceneBuilder:
         lane_center = ((randomizer.randint(0, lane_count - 1) - (lane_count - 1) / 2.0) * lane_width)
         forward_z = randomizer.uniform(8.0, self.config["scene"]["road_length"] - 6.0)
 
-        if class_name == "pedestrian":
+        if class_name == "person":
             lane_center += randomizer.choice([-1.8, 1.8]) + randomizer.uniform(-0.5, 0.5)
             y = 0.9
             yaw = randomizer.uniform(-180.0, 180.0)
@@ -128,14 +135,22 @@ class RoadSceneBuilder:
             yaw = randomizer.choice([-90.0, 90.0])
         else:
             lane_center += randomizer.uniform(-0.25, 0.25)
-            y = 0.55
+            y = {
+                "car": 0.55,
+                "bus": 0.9,
+                "truck": 0.85,
+                "motorbike": 0.45,
+            }.get(class_name, 0.55)
             yaw = randomizer.choice([0.0, 180.0]) + randomizer.uniform(-8.0, 8.0)
 
         scale_cfg = self.config["scene"]["classes"][class_name]["scale_range"]
         uniform_scale = randomizer.uniform(scale_cfg[0], scale_cfg[1])
         class_scale = {
+            "person": np.array([0.6, 1.8, 0.6], dtype=np.float32),
             "car": np.array([1.8, 1.2, 4.0], dtype=np.float32),
-            "pedestrian": np.array([0.6, 1.8, 0.6], dtype=np.float32),
+            "bus": np.array([2.4, 2.4, 10.5], dtype=np.float32),
+            "truck": np.array([2.3, 2.6, 8.5], dtype=np.float32),
+            "motorbike": np.array([0.8, 1.2, 2.0], dtype=np.float32),
             "traffic_sign": np.array([0.35, 1.2, 0.15], dtype=np.float32),
             "traffic_light": np.array([0.45, 2.6, 0.45], dtype=np.float32),
         }[class_name]
@@ -157,8 +172,8 @@ class RoadSceneBuilder:
 
     def _distribute_counts(self, total_dynamic: int, randomizer: Randomizer) -> dict[str, int]:
         """Allocate object counts per class while respecting config limits."""
-        classes = ["car", "pedestrian", "traffic_sign", "traffic_light"]
         limits = self.config["scene"]["classes"]
+        classes = [name for name in CLASS_NAMES if name in limits]
         counts = {name: int(limits[name]["min_count"]) for name in classes}
         remaining = max(0, total_dynamic - sum(counts.values()))
         while remaining > 0:
@@ -172,13 +187,22 @@ class RoadSceneBuilder:
                     break
         return counts
 
+    def _first_available_asset(self, *category_dirs: str) -> str | None:
+        """Return the first discoverable mesh path among candidate category dirs."""
+        for category_dir in category_dirs:
+            candidate = self._first_asset(category_dir)
+            if candidate is not None:
+                return candidate
+        return None
+
     def _first_asset(self, category_dir: str) -> str | None:
         """Return the first OBJ or PLY path relative to asset root if one exists."""
-        category_path = Path("assets/models") / category_dir
+        asset_root = self.loader.asset_root
+        category_path = asset_root / category_dir
         if not category_path.exists():
             return None
         for pattern in ("*.obj", "*.ply"):
             matches = sorted(category_path.glob(pattern))
             if matches:
-                return str(matches[0].relative_to("assets/models"))
+                return str(matches[0].relative_to(asset_root))
         return None

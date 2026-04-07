@@ -30,6 +30,7 @@ from btl2.scene.object_loader import MeshData
 from btl2.utils.colors import color_to_float, instance_color
 from btl2.utils.image import save_mask, save_rgb
 from btl2.utils.io import ensure_output_tree
+from btl2.utils.constants import CLASS_TO_ID
 
 
 @dataclass
@@ -58,8 +59,11 @@ class SyntheticRoadApp:
         # Nếu đang được gọi từ app BTL 1 thì đã có GLFW/OpenGL context sẵn.
         # Khi đó phải tái sử dụng context hiện tại, nếu không việc terminate GLFW
         # ở app offscreen sẽ làm hỏng luôn context chính của editor.
-        self._owns_window = glfw.get_current_context() is None
+        self._shared_context = glfw.get_current_context()
+        self._owns_window = self._shared_context is None
         self.window = OffscreenWindow(width, height) if self._owns_window else None
+        if self._owns_window and self.window is not None:
+            self._shared_context = glfw.get_current_context()
         self.rgb_target = RenderTarget(width, height)
         self.seg_target = RenderTarget(width, height)
         self.depth_target = RenderTarget(width, height)
@@ -132,6 +136,8 @@ class SyntheticRoadApp:
         """Run RGB, depth, and segmentation passes and derive annotations."""
         if self.window is not None:
             self.window.make_current()
+        elif self._shared_context is not None:
+            glfw.make_context_current(self._shared_context)
         camera = build_camera_matrices(scene.camera)
         meshes: dict[str, GLMesh] = {name: upload_mesh(mesh) for name, mesh in mesh_registry.items()}
         materials = self._build_materials(scene)
@@ -246,7 +252,7 @@ class SyntheticRoadApp:
                     scale=np.asarray(obj.scale, dtype=np.float32),
                     base_color=np.asarray(obj.color[:3], dtype=np.float32),
                     instance_id=instance_id,
-                    semantic_id={"car": 0, "pedestrian": 1, "traffic_sign": 2, "traffic_light": 3}[class_name],
+                    semantic_id=CLASS_TO_ID[class_name],
                     metadata={"source": "btl1_scene", "original_name": obj.name},
                     aabb_local=mesh.aabb,
                 )
@@ -345,7 +351,13 @@ class SyntheticRoadApp:
         """Infer one of the BTL2 training classes from an object name."""
         lowered = name.lower()
         if any(token in lowered for token in ("ped", "human", "person", "walker")):
-            return "pedestrian"
+            return "person"
+        if any(token in lowered for token in ("motorbike", "motorcycle", "moto", "bike", "scooter")):
+            return "motorbike"
+        if "bus" in lowered:
+            return "bus"
+        if any(token in lowered for token in ("truck", "lorry")):
+            return "truck"
         if "sign" in lowered:
             return "traffic_sign"
         if any(token in lowered for token in ("light", "signal")):

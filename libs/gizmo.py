@@ -84,6 +84,20 @@ class TransformGizmo(BaseShape):
         self.selected_axis = None
         self.drag_start_pos = None
         self.start_angle = 0.0
+        self.pick_radius_line = 22.0
+        self.pick_radius_rotate = 18.0
+        self.preferred_line_width = 2.6
+
+    def _set_safe_line_width(self):
+        """Clamp line width to what current OpenGL driver actually supports."""
+        try:
+            width_range = GL.glGetFloatv(GL.GL_ALIASED_LINE_WIDTH_RANGE)
+            min_w = float(width_range[0])
+            max_w = float(width_range[1])
+            width = max(min(self.preferred_line_width, max_w), min_w)
+            GL.glLineWidth(width)
+        except Exception:
+            GL.glLineWidth(1.0)
 
     def _create_cube_vertices(self, center, size):
         x, y, z = center
@@ -174,7 +188,7 @@ class TransformGizmo(BaseShape):
             check_ring(self.rotation_circles['y_vertices'], 'y')
             check_ring(self.rotation_circles['z_vertices'], 'z')
             
-            if min_dist < 15.0: return selected
+            if min_dist < self.pick_radius_rotate: return selected
             return None
 
         # --- KIỂM TRA CHUỘT CHO MOVE / SCALE TOOL ---
@@ -189,7 +203,7 @@ class TransformGizmo(BaseShape):
             dist_z = dist_to_segment(mouse, origin_2d, z_tip)
             
             min_dist = min(dist_x, dist_y, dist_z)
-            if min_dist < 15.0:
+            if min_dist < self.pick_radius_line:
                 if min_dist == dist_x: return 'x'
                 elif min_dist == dist_y: return 'y'
                 else: return 'z'
@@ -281,7 +295,7 @@ class TransformGizmo(BaseShape):
         self.uma.upload_uniform_matrix4fv(modelview, 'modelview', True)
         
         GL.glDisable(GL.GL_DEPTH_TEST) 
-        GL.glLineWidth(1.0) 
+        self._set_safe_line_width()
 
         # ======= NẾU LÀ ROTATE TOOL -> VẼ 3 VÒNG TRÒN =======
         if current_tool == 'rotate':

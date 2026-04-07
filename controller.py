@@ -21,13 +21,23 @@ class AppController:
         # Set model reference in viewer for gizmo interaction
         self.view.set_model_reference(self.model)
         
-        self.coord_system = CoordinateSystem(axis_length=20.0, grid_size=1.0, is_3d=False)
+        # Khởi tạo grid đúng mode ngay frame đầu để tránh cảm giác "lật/nghịch" khi vừa mở app.
+        self.coord_system = CoordinateSystem(
+            axis_length=20.0,
+            grid_size=1.0,
+            is_3d=self._is_3d_grid_mode(self.model.selected_category),
+        )
         self._setup_coordinate_system()
 
         self.view.scroll_callback = self.on_scroll
         self.view.mouse_move_callback = self.on_mouse_move
         self.view.mouse_button_callback = self.on_mouse_button
         self.view.key_callback = self.on_key
+
+    @staticmethod
+    def _is_3d_grid_mode(category: int) -> bool:
+        """Category 0 (2D) uses XY grid; other work modes use XZ grid."""
+        return category != 0
 
     def on_scroll(self, window, xoffset, yoffset):
         # Scroll chuột được quy đổi thành zoom của camera trackball.
@@ -158,6 +168,9 @@ class AppController:
             # --- PHÍM TẮT ĐIỀU KHIỂN SGD ---
             elif key == glfw.KEY_SPACE and action == glfw.PRESS:
                 if self.model.selected_category == 4:
+                    if self.model.sgd_replay_enabled and not self.model.sgd_simulation_running:
+                        self.model.sgd_replay_enabled = False
+                        self.model.sgd_replay_step = self.model.sgd_step_count
                     self.model.sgd_simulation_running = not self.model.sgd_simulation_running
                     status = "Running" if self.model.sgd_simulation_running else "Paused"
                     print(f"SGD Simulation: {status}")
@@ -190,10 +203,11 @@ class AppController:
         # và quyết định phải cập nhật model/view như thế nào.
         if 'category_changed' in actions:
             new_cat = actions['category_changed']
+            old_cat = self.model.selected_category
             self.model.set_category(new_cat)
+            self.view.on_category_changed(old_cat, new_cat)
             
-            # Set coordinate system mode - all use XY plane
-            self.coord_system.set_mode(is_3d=False)
+            self.coord_system.set_mode(is_3d=self._is_3d_grid_mode(new_cat))
             
             # Initialize SGD visualizer when switching to category 4
             if new_cat == 4 and self.model.sgd_visualizer is None:
@@ -202,11 +216,25 @@ class AppController:
                 self.model.sync_btl2_config()
 
             self.model.select_hierarchy_object(-1)
+            # Giữ nguyên góc camera khi đổi tab/mode để tránh cảm giác "nhảy view".
+            # Người dùng vẫn có nút "Center Scene For Demo" nếu muốn canh lại thủ công.
         
         if 'shape_changed' in actions:
-            self.model.set_selected(actions['shape_changed'])
+            new_shape_idx = actions['shape_changed']
+            self.model.set_selected(new_shape_idx)
             # Reset hierarchy selection when mesh shape changes
             self.model.select_hierarchy_object(-1)
+            # Chỉ reset camera khi người dùng thực sự chọn một shape preview cụ thể.
+            # Trường hợp -1 (clear shape / đổi tab) thì giữ nguyên camera hiện tại.
+            if new_shape_idx >= 0 and self.model.selected_category in (0, 1, 2, 3, 5):
+                self.view.reset_scene_camera()
+
+        if 'center_scene_for_demo' in actions:
+            if self.view.center_scene_view(self.model.scene.objects):
+                print("Da canh giua scene demo vao viewport.")
+            else:
+                self.view.reset_scene_camera()
+                print("Scene trong, da reset goc nhin ve mac dinh.")
         
         if 'shader_changed' in actions:
             self.model.set_shader(actions['shader_changed'])
@@ -433,10 +461,15 @@ class AppController:
 
         if 'btl2_sync_config' in actions:
             self.model.sync_btl2_config()
+            self.model.btl2_last_status = f"Synced config from {self.model.btl2_config_path}"
             print(f"Đã đồng bộ BTL 2 từ config: {self.model.btl2_config_path}")
 
         if 'btl2_refresh_scene' in actions:
             self.model.refresh_btl2_scene_summary()
+            self.model.btl2_last_status = (
+                f"Scene summary: cameras={self.model.btl2_scene_camera_count}, "
+                f"renderables={self.model.btl2_scene_renderable_count}"
+            )
             print(
                 "BTL 2 scene summary:",
                 f"cameras={self.model.btl2_scene_camera_count},",
@@ -445,13 +478,14 @@ class AppController:
 
         if 'btl2_generate' in actions:
             try:
+                self.model.btl2_last_status = "Running: BTL2 generation in progress..."
                 if getattr(self.model, 'btl2_source_mode', 'current_scene') == 'current_scene':
                     result = self.model.run_btl2_from_current_scene()
                 else:
                     result = self.model.run_btl2_generator()
                 print(f"BTL 2 OK: {result['generated_frames']} frame -> {result['output_dir']}")
             except Exception as exc:
-                self.model.btl2_last_status = f"Lỗi khi chạy BTL 2: {exc}"
+                self.model.btl2_last_status = f"Failed: {exc}"
                 print(self.model.btl2_last_status)
 
     def _browse_texture_file(self):
@@ -619,27 +653,6 @@ class AppController:
 
             ui_actions = self.view.draw_ui(self.model, self.coord_system)
             
-            if 'category_changed' in ui_actions:
-                self.model.set_category(ui_actions['category_changed'])
-                # Initialize SGD visualizer when switching to category 4
-                if self.model.selected_category == 4 and self.model.sgd_visualizer is None:
-                    self.model.init_sgd_visualizer()
-                if self.model.selected_category == 4:
-                    self.coord_system.set_mode(is_3d=True)  # XY grid for SGD
-                elif self.model.selected_category == 6:
-                    self.model.sync_btl2_config()
-                    self.coord_system.set_mode(is_3d=True)
-                elif self.model.selected_category == 0 or self.model.selected_category == 2:
-                    self.coord_system.set_mode(is_3d=True)
-
-            
-            if 'shape_changed' in ui_actions:
-                self.model.set_selected(ui_actions['shape_changed'])
-            
-            if 'math_function_changed' in ui_actions:
-                self.model.set_math_function(ui_actions['math_function_changed'])
-                self.model.load_active_drawable()
-            
             self._process_ui_actions(ui_actions)
             
             # === SGD Position Change ===
@@ -649,7 +662,7 @@ class AppController:
             
             # === SGD Simulation Step ===
             if self.model.selected_category == 4:
-                if self.model.sgd_simulation_running:
+                if self.model.sgd_simulation_running and not self.model.sgd_replay_enabled:
                     for _ in range(self.model.sgd_simulation_speed):
                         if self.model.sgd_step_count < self.model.sgd_max_iterations:
                             self.model.sgd_step()
@@ -678,16 +691,9 @@ class AppController:
                     if hasattr(tb, 'distance'):
                         tb.distance = float(cam.position[2])
             
-            view = self.view.trackball.view_matrix()
-            projection = self.view.trackball.projection_matrix(glfw.get_window_size(self.view.win))
-            
-            # SGD có mặt loss + contour riêng, nên bỏ world grid mặc định để khung hình sạch hơn.
-            if self.model.selected_category != 4:
-                GL.glUseProgram(self.coord_shader.render_idx)
-                self.view.draw_coordinate_system(self.coord_system, projection, view)
-            
             self.view.draw_drawables(self.model.drawables, 
                 self.model.scene.objects,
+                coord_system=self.coord_system,
                 active_tool=self.model.active_tool,
                 selected_objects=self.model.scene.selected_objects
             )

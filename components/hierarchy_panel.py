@@ -15,7 +15,8 @@ class HierarchyPanel:
         win_h = max(win_h, 600)
         
         imgui.set_next_window_position(0, 20)
-        imgui.set_next_window_size(275, max(win_h - 220, 100))
+        panel_h = max(win_h - 20, 100) if model.selected_category == 6 else max(win_h - 220, 100)
+        imgui.set_next_window_size(275, panel_h)
         imgui.begin("Hierarchy", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
         # Check if in Normal mode (category 5)
@@ -112,7 +113,7 @@ class HierarchyPanel:
                 for name in model.sgd_visualizer.optimizers.keys():
                     imgui.text(f"  - {name}")
             elif model.selected_category == 6:
-                imgui.text_wrapped("BTL 2 tái sử dụng ý tưởng camera, object và shader-based rendering từ BTL 1 để sinh dataset RGB/Depth/Mask/BBox.")
+                imgui.text_wrapped("BTL2 mode: left panel stays as scene tree. Use camera objects + renderable objects, then run dataset export in right panel.")
 
         imgui.end()
         
