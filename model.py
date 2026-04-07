@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import math
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Import Scene class
@@ -15,7 +16,7 @@ def _default_shader_paths() -> ShaderPaths:
     return ("./shaders/standard.vert", "./shaders/standard.frag")
 
 
-from libs.transform import Trackball
+from libs.transform import Trackball, quaternion_from_axis_angle, quaternion_slerp
 from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
     SGD_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -143,6 +144,15 @@ class AppModel:
         self.btl2_last_result: Dict[str, Any] = {}
         self.btl2_scene_camera_count: int = 0
         self.btl2_scene_renderable_count: int = 0
+
+        # === Lab: Sphere quaternion SLERP animation ===
+        self.lab_slerp_enabled: bool = False                    # Bật/tắt animation quay tròn
+        self.lab_slerp_loop_seconds: float = 2.6            # Thời gian 1 vòng quay (0°→180°)
+        self.lab_slerp_radius: float = 2.0                   # Bán kính đường tròn quay
+        self.lab_slerp_center_xy: Tuple[float, float] = (0.0, 0.0)  # Tâm quay trong mặt phẳng XY
+        self.lab_slerp_start_time: float = time.perf_counter()        # Thời điểm bắt đầu animation
+        self.lab_slerp_targets: Dict[Any, Dict[str, Any]] = {}   # Danh sách các sphere cần animate
+        self.lab_slerp_active_info: Optional[Dict[str, float]] = None # Info của sphere đang active
         
         # Initialize Scene
         self.scene = Scene()
@@ -423,6 +433,124 @@ class AppModel:
         }
         self.btl2_last_status = f"Done: exported {len(summaries)} frames from current BTL1 scene -> {self.btl2_output_dir}"
         return self.btl2_last_result
+
+    @staticmethod
+    def _is_sphere_drawable(drawable: Any) -> bool:
+        if drawable is None:
+            return False
+        return "Sphere" in drawable.__class__.__name__
+
+    def _capture_lab_slerp_targets(self) -> None:
+        self.lab_slerp_targets = {}
+        for obj in self.scene.objects:
+            drawable = getattr(obj, "drawable", None)
+            if not self._is_sphere_drawable(drawable):
+                continue
+            pos = list(getattr(obj, "position", [0.0, 0.0, 0.0]))
+            rot = list(getattr(obj, "rotation", [0.0, 0.0, 0.0]))
+            x = float(pos[0]) if len(pos) >= 1 else 0.0
+            y = float(pos[1]) if len(pos) >= 2 else 0.0
+            z = float(pos[2]) if len(pos) >= 3 else 0.0
+            theta = math.atan2(y, x) if abs(x) + abs(y) > 1e-6 else 0.0
+            rot_z = float(rot[2]) if len(rot) >= 3 else 0.0
+            self.lab_slerp_targets[obj.id] = {
+                "base_theta": theta,
+                "base_pos_z": z,
+                "base_rot_z": rot_z,
+            }
+
+        if self._is_sphere_drawable(self.active_drawable):
+            active_pos = list(getattr(self.active_drawable, "position", [0.0, 0.0, 0.0]))
+            active_rot = list(getattr(self.active_drawable, "rotation", [0.0, 0.0, 0.0]))
+            ax = float(active_pos[0]) if len(active_pos) >= 1 else 0.0
+            ay = float(active_pos[1]) if len(active_pos) >= 2 else 0.0
+            az = float(active_pos[2]) if len(active_pos) >= 3 else 0.0
+            atheta = math.atan2(ay, ax) if abs(ax) + abs(ay) > 1e-6 else 0.0
+            arot_z = float(active_rot[2]) if len(active_rot) >= 3 else 0.0
+            self.lab_slerp_active_info = {
+                "base_theta": atheta,
+                "base_pos_z": az,
+                "base_rot_z": arot_z,
+            }
+        else:
+            self.lab_slerp_active_info = None
+
+        self.lab_slerp_start_time = time.perf_counter()
+
+    def set_lab_slerp_enabled(self, enabled: bool) -> None:
+        """
+        BẬT/TẮT CHẾ ĐỘ ANIMATION SLERP.
+        
+        Args:
+            enabled: True để bật, False để tắt
+        """
+        enabled = bool(enabled)
+        if self.lab_slerp_enabled == enabled:
+            return  # Tránh thay đổi không cần thiết
+        self.lab_slerp_enabled = enabled
+        if enabled:
+            self._capture_lab_slerp_targets()  # Bật thì capture targets
+
+    def refresh_lab_slerp_targets(self) -> None:
+        """
+        LÀM MỚI LẠI CÁC TARGETS CHO SLERP.
+        
+        Gọi lại hàm capture để update lại danh sách targets
+        khi có thay đổi trong scene (thêm/xóa sphere).
+        """
+        self._capture_lab_slerp_targets()
+
+    def update_lab_slerp_animation(self) -> None:
+        if not self.lab_slerp_enabled:
+            return 
+
+        if not self.lab_slerp_targets and self.lab_slerp_active_info is None:
+            self._capture_lab_slerp_targets()
+            if not self.lab_slerp_targets and self.lab_slerp_active_info is None:
+                return
+
+        loop_s = max(float(self.lab_slerp_loop_seconds), 0.2)
+        elapsed = time.perf_counter() - self.lab_slerp_start_time
+        phase = (elapsed / loop_s) % 1.0
+        t = phase * 2.0 if phase <= 0.5 else (1.0 - phase) * 2.0 
+
+        q_start = quaternion_from_axis_angle((0.0, 0.0, 1.0), degrees=0.0)  # Góc bắt đầu
+        q_end = quaternion_from_axis_angle((0.0, 0.0, 1.0), degrees=180.0) # Góc kết thúc
+        q_delta = quaternion_slerp(q_start, q_end, t)  # Nội suy quaternion
+
+        # Tính góc quay quanh trục Z
+        delta_z_deg = math.degrees(2.0 * math.atan2(float(q_delta[3]), float(q_delta[0]))) # 3 là z; 0 là w
+        delta_z_rad = math.radians(delta_z_deg)
+        cx, cy = self.lab_slerp_center_xy
+        radius = float(self.lab_slerp_radius)
+
+        # Cập nhật vị trí cho tất cả targets
+        by_id = {obj.id: obj for obj in self.scene.objects}
+        for obj_id, info in self.lab_slerp_targets.items():
+            obj = by_id.get(obj_id)
+            if obj is None:
+                continue
+            if not hasattr(obj, "position") or len(obj.position) < 3:
+                continue
+            if not hasattr(obj, "rotation") or len(obj.rotation) < 3:
+                continue
+                
+            # Tính vị trí mới trên đường tròn
+            theta = float(info["base_theta"]) + delta_z_rad
+            obj.position[0] = float(cx + radius * math.cos(theta))  # X = tâm + R*cos(θ)
+            obj.position[1] = float(cy + radius * math.sin(theta))  # Y = tâm + R*sin(θ)
+            obj.position[2] = float(info["base_pos_z"])
+            obj.rotation[2] = float(info["base_rot_z"] + delta_z_deg)  # Cập nhật góc Z
+
+        if self.lab_slerp_active_info is not None and self._is_sphere_drawable(self.active_drawable):
+            pos = getattr(self.active_drawable, "position", [0.0, 0.0, 0.0])
+            rot = getattr(self.active_drawable, "rotation", [0.0, 0.0, 0.0])
+            if len(pos) >= 3 and len(rot) >= 3:
+                theta = float(self.lab_slerp_active_info["base_theta"]) + delta_z_rad
+                pos[0] = float(cx + radius * math.cos(theta))
+                pos[1] = float(cy + radius * math.sin(theta))
+                pos[2] = float(self.lab_slerp_active_info["base_pos_z"])
+                rot[2] = float(self.lab_slerp_active_info["base_rot_z"] + delta_z_deg)
 
     def set_object_type(self, obj_type: str) -> None:
         """Set object type: 'mesh', 'light', or 'camera'"""
