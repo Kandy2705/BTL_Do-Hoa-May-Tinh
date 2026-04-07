@@ -456,6 +456,14 @@ class AppController:
             current_mode = getattr(self.model, 'display_mode', 0)
             self.model.display_mode = 1 if current_mode == 0 else 0
             print(f"Đã chuyển chế độ hiển thị sang: {'Depth Map' if self.model.display_mode == 1 else 'RGB'}") 
+
+        if 'lab_toggle_slerp' in actions:
+            self.model.set_lab_slerp_enabled(actions['lab_toggle_slerp'])
+            print(f"Lab SLERP: {'On' if self.model.lab_slerp_enabled else 'Off'}")
+
+        if 'lab_rescan_slerp_targets' in actions:
+            self.model.refresh_lab_slerp_targets()
+            print(f"Lab SLERP targets: {len(self.model.lab_slerp_targets)} sphere(s)")
             
         # SGD actions are now handled by SGDPanel and model methods
 
@@ -666,6 +674,9 @@ class AppController:
                     for _ in range(self.model.sgd_simulation_speed):
                         if self.model.sgd_step_count < self.model.sgd_max_iterations:
                             self.model.sgd_step()
+
+            # === Lab SLERP Animation Step ===
+            self.model.update_lab_slerp_animation()
             
             # --- [ĐỒNG BỘ 1] GIẢI QUYẾT XUNG ĐỘT GIỮA GIZMO VÀ TRACKBALL ---
             cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]

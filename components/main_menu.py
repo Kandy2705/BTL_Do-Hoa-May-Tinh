@@ -80,6 +80,20 @@ class MainMenu:
                     if imgui.menu_item("Traffic Light")[0]: pass
                     imgui.end_menu()
                 imgui.end_menu()
+
+            if imgui.begin_menu("Lab"):
+                clicked, _ = imgui.menu_item(
+                    "Sphere Z 180° SLERP Loop",
+                    None,
+                    bool(getattr(model, "lab_slerp_enabled", False)),
+                    True,
+                )
+                if clicked:
+                    actions['lab_toggle_slerp'] = not bool(getattr(model, "lab_slerp_enabled", False))
+
+                if imgui.menu_item("Rescan Sphere Targets")[0]:
+                    actions['lab_rescan_slerp_targets'] = True
+                imgui.end_menu()
             imgui.end_main_menu_bar()
             
         return actions
