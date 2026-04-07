@@ -18,6 +18,40 @@ def _default_shader_paths() -> ShaderPaths:
 from libs.transform import Trackball
 from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
+    SGD_PRESETS: Dict[str, Dict[str, Any]] = {
+        "Stable Classroom": {
+            "learning_rate": 0.003,
+            "momentum": 0.60,
+            "batch_size": 16,
+            "max_iterations": 8000,
+            "simulation_speed": 1,
+            "trail_width": 1.0,
+        },
+        "Fast Convergence": {
+            "learning_rate": 0.008,
+            "momentum": 0.80,
+            "batch_size": 24,
+            "max_iterations": 5000,
+            "simulation_speed": 2,
+            "trail_width": 1.1,
+        },
+        "Oscillation Demo": {
+            "learning_rate": 0.025,
+            "momentum": 0.15,
+            "batch_size": 1,
+            "max_iterations": 4000,
+            "simulation_speed": 1,
+            "trail_width": 1.3,
+        },
+        "Divergence Demo": {
+            "learning_rate": 0.10,
+            "momentum": 0.00,
+            "batch_size": 1,
+            "max_iterations": 1200,
+            "simulation_speed": 1,
+            "trail_width": 1.4,
+        },
+    }
 
     def __init__(self) -> None:
         from components.scene import Scene
@@ -59,10 +93,22 @@ class AppModel:
         self.sgd_show_contours = True
         self.sgd_view_mode = "combined"  # surface / contour / combined
         self.sgd_trail_width = 1.0
+        self.sgd_colorblind_mode = False
+        self.sgd_replay_enabled = False
+        self.sgd_replay_step = 0
+        self.sgd_selected_preset = "Custom"
         self.sgd_hover_enabled = True
         self.sgd_hover_info = None
         self.sgd_wireframe_mode = 0  # 0: fill, 1: wireframe, 2: point
         self.sgd_optimizers_enabled = {
+            'GD': True,
+            'SGD': True,
+            'MiniBatch': True,
+            'Momentum': True,
+            'Nesterov': True,
+            'Adam': True,
+        }
+        self.sgd_chart_visible = {
             'GD': True,
             'SGD': True,
             'MiniBatch': True,
@@ -93,7 +139,7 @@ class AppModel:
         self.btl2_num_frames: int = 20
         self.btl2_seed: int = 42
         self.btl2_source_mode: str = "current_scene"
-        self.btl2_last_status: str = "Chưa chạy BTL 2"
+        self.btl2_last_status: str = "Idle: chua chay BTL2."
         self.btl2_last_result: Dict[str, Any] = {}
         self.btl2_scene_camera_count: int = 0
         self.btl2_scene_renderable_count: int = 0
@@ -334,6 +380,7 @@ class AppModel:
             app.close()
 
         self.btl2_last_result = {
+            "mode": "procedural_demo",
             "config_path": self.btl2_config_path,
             "output_dir": self.btl2_output_dir,
             "num_frames": int(self.btl2_num_frames),
@@ -341,7 +388,7 @@ class AppModel:
             "generated_frames": len(summaries),
             "first_frame": summaries[0] if summaries else None,
         }
-        self.btl2_last_status = f"Đã sinh {len(summaries)} frame vào {self.btl2_output_dir}"
+        self.btl2_last_status = f"Done: generated {len(summaries)} frames -> {self.btl2_output_dir}"
         return self.btl2_last_result
 
     def run_btl2_from_current_scene(self) -> dict[str, Any]:
@@ -374,10 +421,7 @@ class AppModel:
             "generated_frames": len(summaries),
             "first_frame": summaries[0] if summaries else None,
         }
-        self.btl2_last_status = (
-            f"Đã xuất {len(summaries)} frame từ scene BTL 1 qua các camera đã đặt "
-            f"(không tính camera mặc định 0) vào {self.btl2_output_dir}"
-        )
+        self.btl2_last_status = f"Done: exported {len(summaries)} frames from current BTL1 scene -> {self.btl2_output_dir}"
         return self.btl2_last_result
 
     def set_object_type(self, obj_type: str) -> None:
@@ -759,6 +803,7 @@ class AppModel:
         self.sgd_visualizer.show_projected_trajectory = self.sgd_show_projected_trajectory
         self.sgd_visualizer.view_mode = self.sgd_view_mode
         self.sgd_visualizer.trail_width_scale = max(0.2, float(self.sgd_trail_width))
+        self.sgd_visualizer.set_colorblind_palette(self.sgd_colorblind_mode)
         
         for opt_name, opt_type in [('GD', 'GD'), ('SGD', 'SGD'), ('MiniBatch', 'MiniBatch'), 
                                     ('Momentum', 'Momentum'), ('Nesterov', 'Nesterov'), ('Adam', 'Adam')]:
@@ -769,6 +814,7 @@ class AppModel:
         self.sgd_visualizer.setup()
         self.sgd_simulation_running = False
         self.sgd_step_count = 0
+        self.sgd_replay_step = 0
     
     def set_sgd_loss_function(self, loss_name):
         """Change the loss function and reinitialize optimizers"""
@@ -787,6 +833,8 @@ class AppModel:
                 self.sgd_visualizer.update_trajectory(opt_name)
         
         self.sgd_step_count += 1
+        if not self.sgd_replay_enabled:
+            self.sgd_replay_step = self.sgd_step_count
     
     def reset_sgd(self):
         """Reset all optimizers to initial positions"""
@@ -799,21 +847,96 @@ class AppModel:
         
         self.sgd_simulation_running = False
         self.sgd_step_count = 0
+        self.sgd_replay_step = 0
     
-    def get_sgd_stats(self):
+    def get_sgd_stats(self, replay_step=None):
         """Get current optimization statistics for all optimizers"""
         if self.sgd_visualizer is None:
             return {}
         
         stats = {}
         for opt_name, opt_data in self.sgd_visualizer.optimizers.items():
+            history = opt_data.get('history', [])
+            if len(history) == 0:
+                continue
+
+            if replay_step is None:
+                idx = len(history) - 1
+            else:
+                idx = min(max(int(replay_step), 0), len(history) - 1)
+
+            pos = history[idx]
+            loss_hist = opt_data.get('loss_history', [])
+            grad_hist = opt_data.get('grad_history', [])
+            loss_val = float(loss_hist[idx]) if idx < len(loss_hist) else float(opt_data.get('loss', 0.0))
+            grad_val = float(grad_hist[idx]) if idx < len(grad_hist) else float(opt_data.get('gradient_mag', 0.0))
+
             stats[opt_name] = {
-                'position': opt_data['position'].tolist(),
-                'loss': float(opt_data['loss']),
-                'gradient_mag': float(opt_data['gradient_mag']),
-                'step': opt_data['step'],
+                'position': [float(pos[0]), float(pos[1])],
+                'loss': loss_val,
+                'gradient_mag': grad_val,
+                'step': idx,
             }
         return stats
+
+    def get_sgd_metric_series(self, replay_step=None, max_points=500):
+        if self.sgd_visualizer is None:
+            return {}
+
+        max_points = max(20, int(max_points))
+        series = {}
+        for opt_name, opt_data in self.sgd_visualizer.optimizers.items():
+            loss_hist = list(opt_data.get('loss_history', []))
+            grad_hist = list(opt_data.get('grad_history', []))
+            if len(loss_hist) == 0:
+                continue
+
+            if replay_step is None:
+                end_idx = len(loss_hist) - 1
+            else:
+                end_idx = min(max(int(replay_step), 0), len(loss_hist) - 1)
+            if end_idx < 0:
+                continue
+
+            loss_vals = loss_hist[:end_idx + 1]
+            grad_vals = grad_hist[:end_idx + 1]
+            if len(loss_vals) > max_points:
+                stride = int(math.ceil(len(loss_vals) / max_points))
+                loss_vals = loss_vals[::stride]
+                grad_vals = grad_vals[::stride]
+
+            series[opt_name] = {
+                'loss': loss_vals,
+                'grad': grad_vals,
+            }
+        return series
+
+    def set_sgd_colorblind_mode(self, enabled):
+        self.sgd_colorblind_mode = bool(enabled)
+        if self.sgd_visualizer is not None:
+            self.sgd_visualizer.set_colorblind_palette(self.sgd_colorblind_mode)
+
+    def apply_sgd_preset(self, preset_name):
+        preset = self.SGD_PRESETS.get(preset_name)
+        if preset is None:
+            return False
+
+        self.sgd_learning_rate = float(preset['learning_rate'])
+        self.sgd_momentum = float(preset['momentum'])
+        self.sgd_batch_size = int(preset['batch_size'])
+        self.sgd_max_iterations = int(preset['max_iterations'])
+        self.sgd_simulation_speed = int(preset['simulation_speed'])
+        self.sgd_trail_width = float(preset['trail_width'])
+        self.sgd_selected_preset = preset_name
+        self.sgd_replay_enabled = False
+        self.sgd_simulation_running = False
+        self.sgd_step_count = 0
+        self.sgd_replay_step = 0
+
+        if self.sgd_visualizer is not None:
+            self.sgd_visualizer.trail_width_scale = max(0.2, float(self.sgd_trail_width))
+            self.reset_sgd()
+        return True
     
     def toggle_optimizer_enabled(self, opt_name):
         """Toggle an optimizer on/off"""

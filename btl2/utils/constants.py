@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 CLASS_NAMES = [
+    "person",
     "car",
-    "pedestrian",
-    "traffic_sign",
+    "bus",
+    "truck",
+    "motorbike",
     "traffic_light",
+    "traffic_sign",
 ]
 
 CLASS_TO_ID = {name: idx for idx, name in enumerate(CLASS_NAMES)}

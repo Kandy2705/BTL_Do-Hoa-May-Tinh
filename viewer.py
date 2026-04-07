@@ -4,7 +4,7 @@ import imgui
 from imgui.integrations.glfw import GlfwRenderer
 import itertools
 import numpy as np
-from libs.transform import Trackball, lookat, ortho
+from libs.transform import Trackball, lookat, ortho, vec
 from PIL import Image
 
 # Import UI components
@@ -33,6 +33,7 @@ class Viewer:
         # --- SỬA THÀNH: Camera dự phòng khi Scene chưa có Camera nào ---
         self.default_trackball = Trackball()
         self.active_camera_idx = 0
+        self._saved_active_camera_idx = 0
         
         # Store model reference for gizmo interaction
         self.model = None
@@ -46,6 +47,8 @@ class Viewer:
         self.key_callback = None
         self.last_mouse_pos = (0.0, 0.0)
         self.fill_modes = itertools.cycle([gl.GL_FILL, gl.GL_LINE, gl.GL_POINT])
+        self._scene_lmb_active = False
+        self._scene_rmb_active = False
 
         self.gizmo = TransformGizmo()
 
@@ -70,6 +73,10 @@ class Viewer:
         # Property này quyết định "camera nào đang thật sự được dùng để nhìn scene".
         if not self.model: 
             return self.default_trackball
+
+        # BTL2 panel ưu tiên scene camera để góc nhìn ổn định, tránh đảo ngược do game camera.
+        if self.model.selected_category == 6:
+            return self.default_trackball
             
         cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]
         
@@ -83,6 +90,17 @@ class Viewer:
             return target_cam.trackball
             
         return self.default_trackball
+
+    def on_category_changed(self, previous_category: int, new_category: int) -> None:
+        # Vào BTL2: nhớ camera hiện tại rồi chuyển tạm về scene camera để tránh "lật view".
+        if previous_category != 6 and new_category == 6:
+            self._saved_active_camera_idx = self.active_camera_idx
+            self.active_camera_idx = 0
+            return
+
+        # Rời BTL2: trả lại camera trước đó để workflow BTL1 không bị mất ngữ cảnh.
+        if previous_category == 6 and new_category != 6:
+            self.active_camera_idx = max(0, int(self._saved_active_camera_idx))
 
     def _apply_unity_style(self):
         style = imgui.get_style()
@@ -108,21 +126,97 @@ class Viewer:
 
     # Các hàm callback giữ nguyên như code cũ của bạn...
     def _on_scroll(self, window, xoffset, yoffset):
+        self.imgui_impl.scroll_callback(window, xoffset, yoffset)
+        if imgui.get_io().want_capture_mouse:
+            return
         if self._is_sgd_contour_locked():
             return
         if self.scroll_callback: self.scroll_callback(window, xoffset, yoffset)
 
+    def _is_mouse_in_scene_viewport(self, xpos, ypos):
+        win_w, win_h = glfw.get_window_size(self.win)
+        layout = self._layout_metrics(win_w, win_h)
+        vx, vy, vw, vh = layout["viewport_rect"]
+        return (vx <= xpos <= vx + vw) and (vy <= ypos <= vy + vh)
+
+    def _scene_input_context(self):
+        """Return view/projection and mouse transform context for scene viewport."""
+        win_w, win_h = glfw.get_window_size(self.win)
+        layout = self._layout_metrics(win_w, win_h)
+        vx, vy, vw, vh = layout["viewport_rect"]
+        scene_size = (max(int(vw), 1), max(int(vh), 1))
+        view = self.trackball.view_matrix()
+        projection = self.trackball.projection_matrix(scene_size)
+        return view, projection, scene_size, (float(vx), float(vy))
+
+    @staticmethod
+    def _to_local_viewport_pos(mouse_pos, viewport_origin):
+        return (
+            float(mouse_pos[0]) - float(viewport_origin[0]),
+            float(mouse_pos[1]) - float(viewport_origin[1]),
+        )
+
+    def reset_scene_camera(self):
+        """Reset default scene camera so demo content is consistently centered."""
+        old_tb = self.default_trackball
+        new_tb = Trackball()
+        for attr in ("fov", "near", "far"):
+            if hasattr(old_tb, attr):
+                setattr(new_tb, attr, getattr(old_tb, attr))
+        self.default_trackball = new_tb
+        self.active_camera_idx = 0
+
+    def center_scene_view(self, scene_objects):
+        """Frame visible renderable scene objects near the center of viewport."""
+        renderables = [
+            obj for obj in scene_objects
+            if getattr(obj, "visible", True)
+            and hasattr(obj, "drawable")
+            and getattr(obj, "drawable", None) is not None
+            and hasattr(obj, "position")
+        ]
+        if not renderables:
+            self.reset_scene_camera()
+            return False
+
+        mins = np.array([np.inf, np.inf, np.inf], dtype=np.float32)
+        maxs = np.array([-np.inf, -np.inf, -np.inf], dtype=np.float32)
+        for obj in renderables:
+            pos = np.asarray(getattr(obj, "position", [0.0, 0.0, 0.0]), dtype=np.float32)
+            scale = np.asarray(getattr(obj, "scale", [1.0, 1.0, 1.0]), dtype=np.float32)
+            half = np.maximum(np.abs(scale) * 0.6, 0.35)
+            mins = np.minimum(mins, pos - half)
+            maxs = np.maximum(maxs, pos + half)
+
+        center = (mins + maxs) * 0.5
+        extent = np.maximum(maxs - mins, 0.7)
+        radius = float(np.linalg.norm(extent) * 0.5)
+
+        self.active_camera_idx = 0
+        tb = self.default_trackball
+        fov = float(getattr(tb, "fov", 60.0))
+        half_fov = max(np.radians(fov) * 0.5, 0.35)
+        depth = max(radius / np.tan(half_fov), 2.5)
+        tb.distance = max(depth + float(center[2]), 1.5)
+        tb.pos2d = vec(-float(center[0]), -float(center[1]))
+        return True
+
     def on_mouse_move(self, window, xpos, ypos):
+        if imgui.get_io().want_capture_mouse:
+            self.last_mouse_pos = (xpos, ypos)
+            return
         if self._is_sgd_contour_locked():
             self.last_mouse_pos = (xpos, ypos)
             return
+        inside_viewport = self._is_mouse_in_scene_viewport(xpos, ypos)
         # 1. CHUỘT PHẢI: Xoay Camera vòng vòng (Nhưng cũ)
-        if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS:
+        if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS and (self._scene_rmb_active or inside_viewport):
             self.trackball.drag(self.last_mouse_pos, (xpos, ypos), glfw.get_window_size(window))
             
         # 2. CHUỘT TRÁI: Tương tác với Gizmo hoặc Hand Tool
         elif (glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS and 
-              glfw.get_key(window, glfw.KEY_LEFT_SHIFT) != glfw.PRESS):
+              glfw.get_key(window, glfw.KEY_LEFT_SHIFT) != glfw.PRESS and
+              (self._scene_lmb_active or inside_viewport)):
             
             current_tool = getattr(self.model, 'active_tool', 'select')
             
@@ -140,22 +234,39 @@ class Viewer:
                 if (selected_objects and len(selected_objects) == 1 and 
                     current_tool in ['move', 'rotate', 'scale']):
                     target = selected_objects[0]
-                    mouse_pos = (xpos, ypos)
-                    
-                    view = self.trackball.view_matrix()
-                    proj = self.trackball.projection_matrix(glfw.get_window_size(window))
-                    win_size = glfw.get_window_size(window)
+                    view, proj, scene_size, viewport_origin = self._scene_input_context()
+                    mouse_pos = self._to_local_viewport_pos((xpos, ypos), viewport_origin)
                     
                     # Nếu đang thao tác object, kéo chuột sẽ chuyển thành transform qua gizmo.
-                    self.gizmo.handle_mouse_drag(mouse_pos, target, current_tool, view, proj, win_size)
+                    self.gizmo.handle_mouse_drag(mouse_pos, target, current_tool, view, proj, scene_size)
         
         # Cập nhật vị trí chuột cuối cùng
         self.last_mouse_pos = (xpos, ypos)
     
     def on_mouse_button(self, window, button, action, mods):
+        self.imgui_impl.mouse_callback(window, button, action, mods)
+        mouse_pos = glfw.get_cursor_pos(window)
+        inside_viewport = self._is_mouse_in_scene_viewport(mouse_pos[0], mouse_pos[1])
+        if action == glfw.RELEASE:
+            if button == glfw.MOUSE_BUTTON_LEFT:
+                self._scene_lmb_active = False
+                self.gizmo.handle_mouse_release()
+            elif button == glfw.MOUSE_BUTTON_RIGHT:
+                self._scene_rmb_active = False
+        elif action == glfw.PRESS:
+            if button == glfw.MOUSE_BUTTON_LEFT:
+                self._scene_lmb_active = inside_viewport
+            elif button == glfw.MOUSE_BUTTON_RIGHT:
+                self._scene_rmb_active = inside_viewport
+
+        if imgui.get_io().want_capture_mouse:
+            self.last_mouse_pos = mouse_pos
+            return
         if self._is_sgd_contour_locked():
             return
         if button == glfw.MOUSE_BUTTON_LEFT:
+            if action == glfw.PRESS and not inside_viewport:
+                return
             if action == glfw.PRESS:
                 current_tool = getattr(self.model, 'active_tool', 'select')
                 selected_objects = getattr(self.model.scene, 'selected_objects', [])
@@ -163,18 +274,13 @@ class Viewer:
                 if (selected_objects and len(selected_objects) == 1 and 
                     current_tool in ['move', 'rotate', 'scale']):
                     target = selected_objects[0]
-                    mouse_pos = glfw.get_cursor_pos(window)
-                    
                     # --- LẤY MA TRẬN CAMERA & MÀN HÌNH ---
-                    view = self.trackball.view_matrix()
-                    proj = self.trackball.projection_matrix(glfw.get_window_size(window))
-                    win_size = glfw.get_window_size(window)
+                    view, proj, scene_size, viewport_origin = self._scene_input_context()
+                    local_mouse_pos = self._to_local_viewport_pos(mouse_pos, viewport_origin)
                     
                     # Bắt đầu bấm trúng Gizmo
-                    self.gizmo.handle_mouse_press(mouse_pos, target.position, current_tool, view, proj, win_size)
+                    self.gizmo.handle_mouse_press(local_mouse_pos, target.position, current_tool, view, proj, scene_size)
                     
-            elif action == glfw.RELEASE:
-                self.gizmo.handle_mouse_release()
     def _on_key(self, window, key, scancode, action, mods):
         self.imgui_impl.keyboard_callback(window, key, scancode, action, mods)
         if not imgui.get_io().want_capture_keyboard and self.key_callback:
@@ -236,6 +342,32 @@ class Viewer:
                       np.array([0.0, 0.5, 0.0], dtype=np.float32))
         return view, projection
 
+    def _layout_metrics(self, win_w, win_h):
+        is_btl2 = bool(self.model and self.model.selected_category == 6)
+        left_w = 275
+        right_w = 380 if is_btl2 else 320
+        tools_w = 0 if is_btl2 else 40
+        bottom_h = 0 if is_btl2 else 200
+
+        viewport_x = float(left_w + tools_w)
+        viewport_y = 55.0
+        viewport_w = max(float(win_w - left_w - right_w - tools_w), 10.0)
+        viewport_h = max(float(win_h) - viewport_y - float(bottom_h), 10.0)
+
+        return {
+            "is_btl2": is_btl2,
+            "left_w": left_w,
+            "right_w": right_w,
+            "tools_w": tools_w,
+            "bottom_h": bottom_h,
+            "viewport_rect": (viewport_x, viewport_y, viewport_w, viewport_h),
+            "toolbar_x": viewport_x,
+            "toolbar_w": max(viewport_w, 100.0),
+            "show_tools_panel": not is_btl2,
+            "show_inspector_panel": not is_btl2,
+            "show_project_panel": not is_btl2,
+        }
+
     def _get_sgd_contour_inset_rect(self, gl_x, gl_y, gl_w, gl_h):
         # Inset mini contour map cố định ở góc phải dưới của viewport scene.
         if gl_w < 220 or gl_h < 180:
@@ -261,7 +393,8 @@ class Viewer:
 
     def _draw_sgd_contour_inset(self, sgd_visualizer, gl_x, gl_y, gl_w, gl_h,
                                 display_mode, cam_far,
-                                show_trajectory, show_projected_trajectory):
+                                show_trajectory, show_projected_trajectory,
+                                replay_step=None):
         inset_rect = self._get_sgd_contour_inset_rect(gl_x, gl_y, gl_w, gl_h)
         if inset_rect is None:
             return
@@ -284,6 +417,7 @@ class Viewer:
             show_drop_lines=False,
             show_contours=True,
             view_mode='contour',
+            replay_step=replay_step,
         )
 
     def end_frame(self) -> None:
@@ -291,13 +425,14 @@ class Viewer:
         self.imgui_impl.render(imgui.get_draw_data())
         glfw.swap_buffers(self.win)
 
-    def draw_drawables(self, drawables, scene_objects, active_tool="select", selected_objects=None):
+    def draw_drawables(self, drawables, scene_objects, coord_system=None, active_tool="select", selected_objects=None):
         # Đây là khối render chính của viewer:
         # lấy camera hiện tại, dựng ma trận view/projection,
         # thu thập đèn trong scene rồi gọi draw cho từng drawable.
         win_w, win_h = glfw.get_window_size(self.win)
         fb_w, fb_h = glfw.get_framebuffer_size(self.win)
-        viewport_rect = (315.0, 55.0, max(win_w - 635.0, 10.0), max(win_h - 255.0, 10.0))
+        layout = self._layout_metrics(win_w, win_h)
+        viewport_rect = layout["viewport_rect"]
         vx, vy, vw, vh = viewport_rect
 
         scale_x = fb_w / max(win_w, 1)
@@ -317,6 +452,9 @@ class Viewer:
             view = self.trackball.view_matrix()
             projection = self.trackball.projection_matrix((gl_w, gl_h))
 
+        if coord_system is not None and getattr(coord_system, "visible", False) and self.model.selected_category != 4:
+            coord_system.draw(projection, view)
+
         scene_lights = [obj for obj in scene_objects if hasattr(obj, 'light_intensity')]
         
         # === LẤY CÁC GIÁ TRỊ GLOBAL ĐỂ TRUYỀN VÀO SHADER ===
@@ -334,6 +472,7 @@ class Viewer:
             show_drop_lines = getattr(self.model, 'sgd_show_drop_lines', True)
             show_contours = getattr(self.model, 'sgd_show_contours', True)
             view_mode = getattr(self.model, 'sgd_view_mode', "combined")
+            replay_step = self.model.sgd_replay_step if getattr(self.model, 'sgd_replay_enabled', False) else None
             self.model.sgd_visualizer.draw(
                 projection,
                 view,
@@ -345,6 +484,7 @@ class Viewer:
                 show_drop_lines=show_drop_lines,
                 show_contours=show_contours,
                 view_mode=view_mode,
+                replay_step=replay_step,
             )
             draw_sgd_inset = not self._is_sgd_contour_locked()
             inset_show_trajectory = show_trajectory
@@ -426,6 +566,7 @@ class Viewer:
                 cam_far=cam_far,
                 show_trajectory=inset_show_trajectory,
                 show_projected_trajectory=inset_show_projected,
+                replay_step=(self.model.sgd_replay_step if getattr(self.model, 'sgd_replay_enabled', False) else None),
             )
             # Khôi phục viewport/scissor scene chính để tránh ảnh hưởng các pass sau.
             gl.glViewport(gl_x, gl_y, gl_w, gl_h)
@@ -471,14 +612,15 @@ class Viewer:
         # Ensure minimum window size
         win_w = max(win_w, 800)
         win_h = max(win_h, 600)
+        layout = self._layout_metrics(win_w, win_h)
         
         # 1. MAIN MENU BAR
         menu_actions = MainMenu.draw(model)
         actions.update(menu_actions)
         
         # 2. THANH CÔNG CỤ VIEWPORT
-        imgui.set_next_window_position(275 + 40, 20)
-        imgui.set_next_window_size(max(win_w - 595 - 40, 100), 35)
+        imgui.set_next_window_position(layout["toolbar_x"], 20)
+        imgui.set_next_window_size(layout["toolbar_w"], 35)
         imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
         imgui.begin("ViewportToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
         
@@ -504,52 +646,57 @@ class Viewer:
         imgui.end()
         imgui.pop_style_color()
 
-        # 3. THANH CÔNG CỤ TRANSFORM TOOLS (Giữ nguyên code gốc)
-        imgui.set_next_window_position(275, 20)
-        imgui.set_next_window_size(40, max(win_h - 220, 100))
-        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
-        imgui.begin("Tools", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
+        # 3. THANH CÔNG CỤ TRANSFORM TOOLS
+        if layout["show_tools_panel"]:
+            imgui.set_next_window_position(275, 20)
+            imgui.set_next_window_size(40, max(win_h - 220, 100))
+            imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.15, 0.15, 0.15, 0.9)
+            imgui.begin("Tools", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
 
-        if imgui.image(self.cube_texture_id, 24, 24):
-            print("Đã chọn Object Tool")
-            
-        def draw_tool_btn(tex_id, tool_name):
-            is_active = model.active_tool == tool_name
-            if is_active:
-                imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 1.0, 1.0) # Màu xanh Unity
+            if imgui.image(self.cube_texture_id, 24, 24):
+                print("Đã chọn Object Tool")
                 
-            if imgui.image_button(tex_id, 16, 16):
-                actions['set_tool'] = tool_name
-                
-            if is_active:
-                imgui.pop_style_color(1)
+            def draw_tool_btn(tex_id, tool_name):
+                is_active = model.active_tool == tool_name
+                if is_active:
+                    imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 1.0, 1.0)
+                    
+                if imgui.image_button(tex_id, 16, 16):
+                    actions['set_tool'] = tool_name
+                    
+                if is_active:
+                    imgui.pop_style_color(1)
 
-        draw_tool_btn(self.hand_texture_id, 'hand')
-        draw_tool_btn(self.move_texture_id, 'move')
-        draw_tool_btn(self.rotate_texture_id, 'rotate')
-        draw_tool_btn(self.scale_texture_id, 'scale')
+            draw_tool_btn(self.hand_texture_id, 'hand')
+            draw_tool_btn(self.move_texture_id, 'move')
+            draw_tool_btn(self.rotate_texture_id, 'rotate')
+            draw_tool_btn(self.scale_texture_id, 'scale')
 
+            imgui.end()
+            imgui.pop_style_color()
 
-
-        imgui.end()
-        imgui.pop_style_color()
-
-        # 4. HIERARCHY PANEL
-        hierarchy_actions = HierarchyPanel.draw(model)
-        actions.update(hierarchy_actions)
+        # 4. LEFT COLUMN: Hierarchy (normal) / Convergence Charts (SGD)
+        if model.selected_category == 4:
+            from components.sgd_panel import SGDPanel
+            SGDPanel.draw_convergence_overlay(model)
+        else:
+            hierarchy_actions = HierarchyPanel.draw(model)
+            actions.update(hierarchy_actions)
         
         # 5. INSPECTOR PANEL
-        inspector_actions = InspectorPanel.draw(model, self.cube_texture_id)
-        actions.update(inspector_actions)
+        if layout["show_inspector_panel"]:
+            inspector_actions = InspectorPanel.draw(model, self.cube_texture_id)
+            actions.update(inspector_actions)
         
         # 6. PROJECT & CONSOLE
-        imgui.set_next_window_position(0, win_h - 200)
-        imgui.set_next_window_size(max(win_w - 320, 100), 200)
-        imgui.begin("Project", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
-        imgui.text("Assets > Models"); imgui.separator()
-        if imgui.button("Import Model"): actions['browse_model_file'] = True
-        imgui.text(f"Active: {model.model_filename}")
-        imgui.end()
+        if layout["show_project_panel"]:
+            imgui.set_next_window_position(0, win_h - 200)
+            imgui.set_next_window_size(max(win_w - 320, 100), 200)
+            imgui.begin("Project", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
+            imgui.text("Assets > Models"); imgui.separator()
+            if imgui.button("Import Model"): actions['browse_model_file'] = True
+            imgui.text(f"Active: {model.model_filename}")
+            imgui.end()
         
         # 7. SGD OPTIMIZER PANEL (PHẦN 2)
         if model.selected_category == 4:

@@ -216,7 +216,7 @@ class ObjectLoader:
         return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)))
 
     def _build_cylinder(self, segments: int = 16) -> MeshData:
-        """Create a simple vertical cylinder placeholder for pedestrians."""
+        """Create a simple vertical cylinder placeholder for person-class objects."""
         vertices: list[list[float]] = []
         normals: list[list[float]] = []
         indices: list[int] = []

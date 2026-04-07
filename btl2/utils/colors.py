@@ -8,10 +8,13 @@ import numpy as np
 
 
 CLASS_COLOR_MAP = {
+    "person": (70, 200, 120),
     "car": (220, 70, 70),
-    "pedestrian": (70, 200, 120),
-    "traffic_sign": (255, 210, 60),
+    "bus": (255, 140, 70),
+    "truck": (160, 110, 80),
+    "motorbike": (70, 150, 240),
     "traffic_light": (90, 150, 255),
+    "traffic_sign": (255, 210, 60),
     "road": (90, 90, 90),
     "lane_marking": (230, 230, 230),
     "background": (135, 206, 235),

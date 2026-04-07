@@ -23,25 +23,37 @@ scene:
   lane_count: 2
   sky_top_color: [0.55, 0.7, 0.95]
   sky_bottom_color: [0.95, 0.98, 1.0]
-  min_objects: 5
-  max_objects: 10
+  min_objects: 7
+  max_objects: 12
   classes:
-    car:
-      min_count: 2
-      max_count: 4
-      scale_range: [0.9, 1.1]
-    pedestrian:
+    person:
       min_count: 1
       max_count: 2
       scale_range: [0.9, 1.05]
-    traffic_sign:
+    car:
+      min_count: 1
+      max_count: 3
+      scale_range: [0.9, 1.1]
+    bus:
       min_count: 1
       max_count: 2
-      scale_range: [0.95, 1.1]
+      scale_range: [0.9, 1.05]
+    truck:
+      min_count: 1
+      max_count: 2
+      scale_range: [0.9, 1.05]
+    motorbike:
+      min_count: 1
+      max_count: 2
+      scale_range: [0.9, 1.1]
     traffic_light:
       min_count: 1
       max_count: 1
       scale_range: [1.0, 1.0]
+    traffic_sign:
+      min_count: 1
+      max_count: 2
+      scale_range: [0.95, 1.1]
 lighting:
   ambient_strength: 0.4
   directional_intensity_range: [0.9, 1.25]
@@ -51,4 +63,3 @@ annotations:
   min_bbox_pixels: 8
   visibility_threshold: 0.02
   segmentation_alpha_preview: 0.45
-
