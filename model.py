@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib
 import math
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import numpy as np
 
 # Import Scene class
 from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
@@ -144,6 +147,7 @@ class AppModel:
         self.btl2_last_result: Dict[str, Any] = {}
         self.btl2_scene_camera_count: int = 0
         self.btl2_scene_renderable_count: int = 0
+        self.btl2_preview_camera_state: Dict[str, Any] = {}
 
         # === Lab: Sphere quaternion SLERP animation ===
         self.lab_slerp_enabled: bool = False                    # Bật/tắt animation quay tròn
@@ -434,6 +438,172 @@ class AppModel:
         self.btl2_last_status = f"Done: exported {len(summaries)} frames from current BTL1 scene -> {self.btl2_output_dir}"
         return self.btl2_last_result
 
+    def _clear_scene_objects_for_btl2_preview(self) -> None:
+        # Dọn scene hiện tại để preview procedural xuất hiện rõ ràng, không chồng dữ liệu cũ.
+        self.scene.objects.clear()
+        self.scene.selected_objects.clear()
+        self.hierarchy_objects.clear()
+        self.selected_hierarchy_idx = -1
+
+    @staticmethod
+    def _map_btl2_class_to_btl1_shape(class_name: str) -> str:
+        mapping = {
+            "road": "Cube",
+            "car": "Cube",
+            "bus": "Cube",
+            "truck": "Cube",
+            "motorbike": "Cube",
+            "person": "Cylinder",
+            "traffic_sign": "Cube",
+            "traffic_light": "Cube",
+        }
+        return mapping.get(class_name, "Cube")
+
+    @staticmethod
+    def _resolve_btl2_preview_model_path(scene_obj: Any) -> Optional[str]:
+        metadata = getattr(scene_obj, "metadata", {}) or {}
+        source_asset = metadata.get("source_asset")
+        if not source_asset:
+            return None
+
+        asset_path = (Path("assets/models") / source_asset).resolve()
+        if asset_path.suffix.lower() not in {".obj", ".ply"}:
+            return None
+        if not asset_path.exists():
+            return None
+        return str(asset_path)
+
+    def _build_btl2_preview_object_spec(self, scene_obj: Any) -> Dict[str, str]:
+        model_filename = self._resolve_btl2_preview_model_path(scene_obj)
+        if model_filename:
+            return {
+                "obj_type": "custom_model",
+                "shape_name": "Cube",
+                "model_filename": model_filename,
+            }
+        return {
+            "obj_type": "3d",
+            "shape_name": self._map_btl2_class_to_btl1_shape(scene_obj.class_name),
+            "model_filename": "",
+        }
+
+    @staticmethod
+    def _match_btl2_preview_scale(source_obj: Any, created_obj: Any) -> List[float]:
+        target_world_size = [float(v) for v in source_obj.scale.tolist()]
+        drawable = getattr(created_obj, "drawable", None)
+        if drawable is None or not hasattr(drawable, "vertices"):
+            return target_world_size
+
+        drawable_vertices = getattr(drawable, "vertices", None)
+        if drawable_vertices is None or len(drawable_vertices) == 0:
+            return target_world_size
+
+        preview_extent = np.max(drawable_vertices, axis=0) - np.min(drawable_vertices, axis=0)
+
+        matched_scale: List[float] = []
+        for idx, value in enumerate(target_world_size):
+            dst_extent = float(preview_extent[idx]) if idx < len(preview_extent) else 0.0
+            if dst_extent > 1e-6:
+                matched_scale.append(float(value / dst_extent))
+            else:
+                matched_scale.append(float(value))
+        return matched_scale
+
+    def load_btl2_procedural_preview_into_scene(self) -> dict[str, Any]:
+        """Nạp 1 frame procedural từ BTL2 vào scene BTL1 để xem trực tiếp trong viewport."""
+        from btl2.scene.road_scene_builder import RoadSceneBuilder
+        from btl2.utils.io import load_yaml
+        import numpy as np
+
+        cfg = load_yaml(self.btl2_config_path)
+        cfg["seed"] = int(self.btl2_seed)
+        cfg["num_frames"] = max(1, int(cfg.get("num_frames", self.btl2_num_frames)))
+        cfg["output_dir"] = self.btl2_output_dir
+
+        builder = RoadSceneBuilder(cfg)
+        preview_scene, _ = builder.build_scene(frame_index=0)
+        self.btl2_preview_camera_state = {
+            "position": preview_scene.camera.position.tolist(),
+            "target": preview_scene.camera.target.tolist(),
+            "up": preview_scene.camera.up.tolist(),
+            "fov": float(preview_scene.camera.fov_y_degrees),
+            "near": float(preview_scene.camera.near),
+            "far": float(preview_scene.camera.far),
+        }
+
+        self._clear_scene_objects_for_btl2_preview()
+
+        # 1) Add procedural objects as BTL1 mesh objects.
+        added_mesh = 0
+        for obj in preview_scene.objects:
+            preview_spec = self._build_btl2_preview_object_spec(obj)
+            self.add_hierarchy_object(
+                obj.name,
+                preview_spec["obj_type"],
+                preview_spec["shape_name"],
+                model_filename=preview_spec["model_filename"],
+            )
+            created = self.scene.objects[-1]
+
+            created.position = [float(v) for v in obj.position.tolist()]
+            created.rotation = [float(v) for v in obj.rotation_degrees.tolist()]
+            created.scale = self._match_btl2_preview_scale(obj, created)
+            if preview_spec["obj_type"] == "custom_model":
+                created.color = [1.0, 1.0, 1.0, 1.0]
+            else:
+                base_color = obj.base_color.tolist()
+                created.color = [float(base_color[0]), float(base_color[1]), float(base_color[2]), 1.0]
+            created.shader = 2  # Phong
+            self._sync_scene_object_visuals(created)
+            added_mesh += 1
+
+        # 2) Add one light from BTL2 directional light (approximate for BTL1 point-light model).
+        self.add_hierarchy_object("BTL2 Light", "light")
+        light_obj = self.scene.objects[-1]
+        light_dir = np.asarray(preview_scene.light.direction, dtype=np.float32)
+        light_obj.position = [
+            float(-light_dir[0] * 8.0),
+            float(max(2.0, abs(light_dir[1]) * 8.0)),
+            float(-light_dir[2] * 8.0),
+        ]
+        light_obj.light_color = [float(v) for v in preview_scene.light.color.tolist()]
+        light_obj.light_intensity = float(preview_scene.light.intensity)
+
+        # 3) Add one camera object for dataset context (viewer vẫn dùng Scene Camera mặc định khi ở BTL2 tab).
+        self.add_hierarchy_object("BTL2 Dashcam", "camera")
+        cam_obj = self.scene.objects[-1]
+        cam_obj.camera_fov = float(preview_scene.camera.fov_y_degrees)
+        cam_obj.camera_near = float(preview_scene.camera.near)
+        cam_obj.camera_far = float(preview_scene.camera.far)
+        cam_pos = np.asarray(preview_scene.camera.position, dtype=np.float32)
+        cam_target = np.asarray(preview_scene.camera.target, dtype=np.float32)
+        cam_obj.position = [float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2])]
+
+        if hasattr(cam_obj, "trackball"):
+            cam_obj.trackball.fov = cam_obj.camera_fov
+            cam_obj.trackball.near = cam_obj.camera_near
+            cam_obj.trackball.far = cam_obj.camera_far
+            # Đặt khoảng cách gần tương đương khoảng cách eye-target để inspector đọc hợp lý hơn.
+            cam_obj.trackball.distance = float(max(np.linalg.norm(cam_pos - cam_target), 0.2))
+            if hasattr(cam_obj.trackball, "pos2d"):
+                cam_obj.trackball.pos2d[0] = float(cam_pos[0])
+                cam_obj.trackball.pos2d[1] = float(cam_pos[1])
+
+        self.refresh_btl2_scene_summary()
+        self.btl2_last_status = (
+            f"Loaded procedural preview to BTL1 scene: "
+            f"{added_mesh} mesh object(s), 1 light, 1 camera."
+        )
+        self.btl2_last_result = {
+            "mode": "procedural_preview_to_btl1",
+            "generated_frames": 1,
+            "output_dir": self.btl2_output_dir,
+            "mesh_objects": added_mesh,
+            "cameras": self.btl2_scene_camera_count,
+            "renderables": self.btl2_scene_renderable_count,
+        }
+        return self.btl2_last_result
+
     @staticmethod
     def _is_sphere_drawable(drawable: Any) -> bool:
         if drawable is None:
@@ -581,13 +751,18 @@ class AppModel:
             if hasattr(drawable, 'set_solid_color') and hasattr(scene_obj, 'color'):
                 drawable.set_solid_color(scene_obj.color[:3])
 
-    def add_hierarchy_object(self, name: str, obj_type: str, shape_name: str = "Cube") -> None:
+    def add_hierarchy_object(
+        self,
+        name: str,
+        obj_type: str,
+        shape_name: str = "Cube",
+        model_filename: str = "",
+    ) -> None:
         from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
-        import numpy as np
         
         # 1. Tạo đúng loại GameObject theo nhu cầu của người dùng.
         # Mesh, light, camera đều được đưa về cùng mô hình scene object để quản lý thống nhất.
-        if obj_type in ["3d", "custom_model"]:
+        if obj_type == "3d":
             new_obj = GameObjectOBJ(name)
             
             # Tạo drawable theo shape_name
@@ -622,6 +797,26 @@ class AppModel:
             shape_module = __import__(module_name, fromlist=[class_name])
             shape_class = getattr(shape_module, class_name)
             new_obj.drawable = shape_class(vert_shader, frag_shader)
+            new_obj.drawable.setup()
+            
+        elif obj_type == "custom_model":
+            new_obj = GameObjectOBJ(name)
+            vert_shader = "./shaders/standard.vert"
+            frag_shader = "./shaders/standard.frag"
+
+            import sys
+            import os
+            model_path = os.path.join(os.path.dirname(__file__), 'geometry')
+            if model_path not in sys.path:
+                sys.path.insert(0, model_path)
+
+            resolved_model = model_filename or self.model_filename
+            new_obj.obj_ply_file = resolved_model
+            if resolved_model:
+                self.model_filename = resolved_model
+
+            from model_loader3d import ModelLoader
+            new_obj.drawable = ModelLoader(vert_shader, frag_shader, filename=resolved_model or None)
             new_obj.drawable.setup()
             
         elif obj_type == "2d":
@@ -677,23 +872,6 @@ class AppModel:
             from math_surface3d import MathematicalSurface
             new_obj.drawable = MathematicalSurface(vert_shader, frag_shader)
             new_obj.drawable.setup()
-            
-        elif obj_type == "custom_model":
-            new_obj = GameObjectOBJ(name)
-            # Create ModelLoader drawable
-            vert_shader = "./shaders/standard.vert"
-            frag_shader = "./shaders/standard.frag"
-            
-            # Import ModelLoader
-            import sys
-            import os
-            model_path = os.path.join(os.path.dirname(__file__), 'geometry')
-            if model_path not in sys.path:
-                sys.path.insert(0, model_path)
-            
-            from model_loader3d import ModelLoader
-            new_obj.drawable = ModelLoader(vert_shader, frag_shader)
-            new_obj.drawable.setup()
         elif obj_type == "light":
             new_obj = GameObjectLight(name)
             new_obj.drawable = None # Đèn không cần vẽ lưới (hoặc vẽ icon sau)
@@ -729,6 +907,8 @@ class AppModel:
             "selected": True,
             "visible": new_obj.visible
         }
+        if obj_type == "custom_model":
+            hierarchy_obj["model_data"] = {"filename": getattr(new_obj, "obj_ply_file", "")}
         self.hierarchy_objects.append(hierarchy_obj)
     
     def select_hierarchy_object(self, idx: int) -> None:
@@ -803,6 +983,9 @@ class AppModel:
                     print("[DEBUG] Math object reloaded")
             elif key == "model_data.filename" and selected_obj["type"] == "custom_model":
                 self.model_filename = value  # Update global model filename for compatibility
+                scene_obj = next((obj for obj in self.scene.objects if obj.id == selected_obj["id"]), None)
+                if scene_obj is not None and hasattr(scene_obj, "obj_ply_file"):
+                    scene_obj.obj_ply_file = value
                 print(f"[DEBUG] Reloading model object with filename: {value}")
                 # Reload the specific model object in hierarchy
                 self._reload_hierarchy_object(selected_obj)
@@ -896,8 +1079,10 @@ class AppModel:
                 sys.path.insert(0, model_path)
             
             from model_loader3d import ModelLoader
-            print(f"[DEBUG] Creating ModelLoader with filename: {self.model_filename}")
-            scene_obj.drawable = ModelLoader(vert_shader, frag_shader, filename=self.model_filename)
+            model_filename = getattr(scene_obj, "obj_ply_file", "") or hierarchy_obj.get("model_data", {}).get("filename", "") or self.model_filename
+            scene_obj.obj_ply_file = model_filename
+            print(f"[DEBUG] Creating ModelLoader with filename: {model_filename}")
+            scene_obj.drawable = ModelLoader(vert_shader, frag_shader, filename=model_filename or None)
             scene_obj.drawable.setup()
             self._sync_scene_object_visuals(scene_obj)
             print("[DEBUG] ModelLoader recreated")

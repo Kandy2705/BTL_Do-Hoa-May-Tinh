@@ -11,12 +11,20 @@ class BTL2Panel:
     def _status_meta(status_text):
         text = (status_text or "").strip()
         low = text.lower()
-        if "dang chay" in low or "running" in low:
-            return "RUNNING", (0.96, 0.77, 0.30), text
+        # Ưu tiên nhận diện trạng thái kết thúc trước để tránh bị dính nhãn RUNNING sai.
+        if (
+            low.startswith("done")
+            or "generated" in low
+            or "exported" in low
+            or "loaded procedural preview" in low
+            or " da xong" in low
+            or "hoan tat" in low
+        ):
+            return "DONE", (0.36, 0.84, 0.55), text
         if "loi" in low or "failed" in low or "validation" in low:
             return "FAILED", (0.95, 0.35, 0.33), text
-        if "da " in low or "xuat" in low or "ok" in low or "sinh" in low:
-            return "DONE", (0.36, 0.84, 0.55), text
+        if "dang chay" in low or "running" in low or "in progress" in low:
+            return "RUNNING", (0.96, 0.77, 0.30), text
         if not text:
             text = "Idle: chua chay BTL2."
         return "IDLE", (0.72, 0.75, 0.80), text
@@ -97,7 +105,8 @@ class BTL2Panel:
             imgui.text_wrapped("Tip: add camera objects in Hierarchy. Viewer default camera (index 0) is excluded.")
         else:
             imgui.text_wrapped("Procedural mode creates a demo road scene directly from BTL2 package.")
-            imgui.text_wrapped("Note: this mode does not spawn objects into BTL1 viewport; it generates dataset offscreen.")
+            imgui.text_wrapped("Note: by default it renders offscreen for dataset export.")
+            imgui.text_wrapped("Use the button below if you want to load one procedural preview frame into BTL1 scene.")
             if imgui.button("Load Procedural Preview To BTL1 Scene"):
                 actions["btl2_load_preview_scene"] = True
         imgui.separator()

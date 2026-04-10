@@ -38,13 +38,48 @@ class RoadSceneBuilder:
         if "person" not in scene_classes and "pedestrian" in scene_classes:
             scene_classes["person"] = dict(scene_classes["pedestrian"])
         self.asset_specs = {
-            "person": AssetSpec("person", "person_mesh", self._first_available_asset("pedestrians", "people"), "cylinder"),
-            "car": AssetSpec("car", "car_mesh", self._first_asset("vehicles"), "box"),
-            "bus": AssetSpec("bus", "bus_mesh", self._first_available_asset("buses", "vehicles"), "box"),
-            "truck": AssetSpec("truck", "truck_mesh", self._first_available_asset("trucks", "vehicles"), "box"),
-            "motorbike": AssetSpec("motorbike", "motorbike_mesh", self._first_available_asset("motorbikes", "motorcycles", "vehicles"), "box"),
-            "traffic_sign": AssetSpec("traffic_sign", "traffic_sign_mesh", self._first_asset("traffic_signs"), "box"),
-            "traffic_light": AssetSpec("traffic_light", "traffic_light_mesh", self._first_asset("traffic_lights"), "box"),
+            "person": AssetSpec(
+                "person",
+                "person_mesh",
+                self._find_asset(("pedestrians", "people", "Pedestrians", "People"), ("person", "pedestrian", "human")),
+                "cylinder",
+            ),
+            "car": AssetSpec(
+                "car",
+                "car_mesh",
+                self._find_asset(("vehicles", "cars", "Car", "Cars"), ("car", "taxi", "sedan", "suv", "hatch")),
+                "box",
+            ),
+            "bus": AssetSpec(
+                "bus",
+                "bus_mesh",
+                self._find_asset(("buses", "bus", "Buses", "Bus", "vehicles"), ("bus",)),
+                "box",
+            ),
+            "truck": AssetSpec(
+                "truck",
+                "truck_mesh",
+                self._find_asset(("trucks", "truck", "Truck", "Trucks", "vehicles"), ("truck", "lorry", "semi", "pickup")),
+                "box",
+            ),
+            "motorbike": AssetSpec(
+                "motorbike",
+                "motorbike_mesh",
+                self._find_asset(("motorbikes", "motorcycles", "bikes", "vehicles"), ("bike", "motor", "scooter")),
+                "box",
+            ),
+            "traffic_sign": AssetSpec(
+                "traffic_sign",
+                "traffic_sign_mesh",
+                self._find_asset(("traffic_signs", "trafficSigns", "signs", "TrafficSigns"), ("sign",)),
+                "box",
+            ),
+            "traffic_light": AssetSpec(
+                "traffic_light",
+                "traffic_light_mesh",
+                self._find_asset(("traffic_lights", "trafficLights", "lights", "TrafficLights"), ("light", "signal")),
+                "box",
+            ),
         }
 
     def build_scene(self, frame_index: int) -> tuple[Scene, dict[str, MeshData]]:
@@ -119,7 +154,16 @@ class RoadSceneBuilder:
         lane_count = int(self.config["scene"]["lane_count"])
         lane_width = float(self.config["scene"]["lane_width"])
         lane_center = ((randomizer.randint(0, lane_count - 1) - (lane_count - 1) / 2.0) * lane_width)
-        forward_z = randomizer.uniform(8.0, self.config["scene"]["road_length"] - 6.0)
+        min_forward_z = {
+            "person": 9.0,
+            "car": 10.5,
+            "bus": 15.5,
+            "truck": 13.5,
+            "motorbike": 8.5,
+            "traffic_sign": 10.0,
+            "traffic_light": 11.0,
+        }.get(class_name, 9.0)
+        forward_z = randomizer.uniform(min_forward_z, self.config["scene"]["road_length"] - 6.0)
 
         if class_name == "person":
             lane_center += randomizer.choice([-1.8, 1.8]) + randomizer.uniform(-0.5, 0.5)
@@ -195,6 +239,33 @@ class RoadSceneBuilder:
                 return candidate
         return None
 
+    def _find_asset(self, category_dirs: tuple[str, ...], keywords: tuple[str, ...] = ()) -> str | None:
+        """Find a mesh from candidate folders; prefer filenames containing keywords."""
+        candidates = self._collect_assets(*category_dirs)
+        if not candidates:
+            return None
+        if keywords:
+            keyword_lc = tuple(k.lower() for k in keywords if k)
+            for rel in candidates:
+                filename = Path(rel).name.lower()
+                if any(k in filename for k in keyword_lc):
+                    return rel
+        return candidates[0]
+
+    def _collect_assets(self, *category_dirs: str) -> list[str]:
+        """Collect OBJ/PLY candidates from candidate dirs (recursive)."""
+        asset_root = self.loader.asset_root
+        collected: list[str] = []
+        for category_dir in category_dirs:
+            category_path = asset_root / category_dir
+            if not category_path.exists():
+                continue
+            for pattern in ("*.obj", "*.ply"):
+                for match in sorted(category_path.rglob(pattern)):
+                    if match.is_file():
+                        collected.append(str(match.relative_to(asset_root)))
+        return collected
+
     def _first_asset(self, category_dir: str) -> str | None:
         """Return the first OBJ or PLY path relative to asset root if one exists."""
         asset_root = self.loader.asset_root
@@ -202,7 +273,7 @@ class RoadSceneBuilder:
         if not category_path.exists():
             return None
         for pattern in ("*.obj", "*.ply"):
-            matches = sorted(category_path.glob(pattern))
+            matches = sorted(category_path.rglob(pattern))
             if matches:
                 return str(matches[0].relative_to(asset_root))
         return None

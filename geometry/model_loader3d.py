@@ -93,6 +93,61 @@ class ModelLoader(BaseShape):
         idx = int(raw_value)
         return idx - 1 if idx > 0 else count + idx
 
+    def _normalize_material_name(self, name):
+        if not name:
+            return ''
+
+        normalized = ''.join(ch.lower() for ch in name if ch.isalnum())
+        for suffix in ('material', 'mat', 'shader', 'sg'):
+            if normalized.endswith(suffix) and len(normalized) > len(suffix):
+                normalized = normalized[:-len(suffix)]
+        return normalized
+
+    def _guess_material_texture_path(self, material_name, search_dir):
+        if not search_dir or not os.path.isdir(search_dir):
+            return None
+
+        supported_exts = {'.png', '.jpg', '.jpeg', '.tga', '.bmp', '.tif', '.tiff'}
+        preferred_tags = ('basecolor', 'base_color', 'albedo', 'diffuse', 'color')
+        reject_tags = ('normal', 'roughness', 'metal', 'metallic', 'ao', 'ambient', 'spec', 'gloss', 'opacity', 'invert')
+        material_key = self._normalize_material_name(material_name)
+        best_score = 0
+        best_path = None
+
+        try:
+            entries = os.listdir(search_dir)
+        except OSError:
+            return None
+
+        for entry in entries:
+            candidate_path = os.path.join(search_dir, entry)
+            stem, ext = os.path.splitext(entry)
+            if ext.lower() not in supported_exts or not os.path.isfile(candidate_path):
+                continue
+
+            stem_key = self._normalize_material_name(stem)
+            score = 0
+
+            if any(tag in stem_key for tag in reject_tags):
+                score -= 10
+
+            if any(tag in stem_key for tag in preferred_tags):
+                score += 8
+
+            if material_key and stem_key:
+                if material_key in stem_key or stem_key in material_key:
+                    score += 10
+                else:
+                    material_prefix = material_key[:max(3, len(material_key) // 2)]
+                    if material_prefix and material_prefix in stem_key:
+                        score += 4
+
+            if score > best_score:
+                best_score = score
+                best_path = candidate_path
+
+        return os.path.normpath(best_path) if best_score > 0 else None
+
     def _load_mtl_file(self, mtl_path):
         # Đọc file .mtl để lấy thông tin material, chủ yếu là:
         # - Kd: màu diffuse (màu cơ bản của vật liệu)
@@ -131,6 +186,14 @@ class ModelLoader(BaseShape):
                     # Chuyển đường dẫn tương đối thành tuyệt đối
                     texture_path = texture_rel if os.path.isabs(texture_rel) else os.path.join(os.path.dirname(mtl_path), texture_rel)
                     materials[current_material]['map_kd'] = os.path.normpath(texture_path)
+
+        search_dir = os.path.dirname(mtl_path)
+        for material_name, material_info in materials.items():
+            if material_info.get('map_kd'):
+                continue
+            guessed_texture = self._guess_material_texture_path(material_name, search_dir)
+            if guessed_texture:
+                material_info['map_kd'] = guessed_texture
 
         return materials
     

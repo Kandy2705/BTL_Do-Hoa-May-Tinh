@@ -248,4 +248,18 @@ class ObjectLoader:
         vertices_np = np.asarray(vertices, dtype=np.float32)
         normals_np = np.asarray(normals, dtype=np.float32)
         indices_np = np.asarray(indices, dtype=np.uint32)
+        vertices_np = ObjectLoader._normalize_loaded_vertices(vertices_np)
         return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)))
+
+    @staticmethod
+    def _normalize_loaded_vertices(vertices: np.ndarray) -> np.ndarray:
+        """Center imported meshes and scale their longest side to roughly unit size."""
+        if vertices.size == 0:
+            return vertices
+
+        centered = vertices - (vertices.min(axis=0) + vertices.max(axis=0)) * 0.5
+        extent = centered.max(axis=0) - centered.min(axis=0)
+        longest_side = float(np.max(extent))
+        if longest_side <= 1e-6:
+            return centered
+        return centered / longest_side

@@ -496,6 +496,21 @@ class AppController:
                 self.model.btl2_last_status = f"Failed: {exc}"
                 print(self.model.btl2_last_status)
 
+        if 'btl2_load_preview_scene' in actions:
+            try:
+                self.model.btl2_last_status = "Running: loading procedural preview into BTL1 scene..."
+                result = self.model.load_btl2_procedural_preview_into_scene()
+                self.view.center_scene_view(self.model.scene.objects)
+                print(
+                    "BTL2 preview loaded:",
+                    f"mesh={result.get('mesh_objects', 0)},",
+                    f"cameras={result.get('cameras', 0)},",
+                    f"renderables={result.get('renderables', 0)}",
+                )
+            except Exception as exc:
+                self.model.btl2_last_status = f"Failed: {exc}"
+                print(self.model.btl2_last_status)
+
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
         import platform

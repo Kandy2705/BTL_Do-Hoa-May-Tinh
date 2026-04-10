@@ -179,6 +179,11 @@ class Viewer:
             self.reset_scene_camera()
             return False
 
+        if self.model and self.model.selected_category == 6:
+            preview_camera = getattr(self.model, "btl2_preview_camera_state", {}) or {}
+            if self._center_btl2_preview_view(renderables, preview_camera):
+                return True
+
         mins = np.array([np.inf, np.inf, np.inf], dtype=np.float32)
         maxs = np.array([-np.inf, -np.inf, -np.inf], dtype=np.float32)
         for obj in renderables:
@@ -199,6 +204,52 @@ class Viewer:
         depth = max(radius / np.tan(half_fov), 2.5)
         tb.distance = max(depth + float(center[2]), 1.5)
         tb.pos2d = vec(-float(center[0]), -float(center[1]))
+        return True
+
+    def _center_btl2_preview_view(self, renderables, preview_camera):
+        """Use a road-facing preset so BTL2 preview opens like a dashcam scene."""
+        mins = np.array([np.inf, np.inf, np.inf], dtype=np.float32)
+        maxs = np.array([-np.inf, -np.inf, -np.inf], dtype=np.float32)
+        for obj in renderables:
+            pos = np.asarray(getattr(obj, "position", [0.0, 0.0, 0.0]), dtype=np.float32)
+            scale = np.asarray(getattr(obj, "scale", [1.0, 1.0, 1.0]), dtype=np.float32)
+            half = np.maximum(np.abs(scale) * 0.55, 0.25)
+            mins = np.minimum(mins, pos - half)
+            maxs = np.maximum(maxs, pos + half)
+
+        if not np.isfinite(mins).all() or not np.isfinite(maxs).all():
+            return False
+
+        center = (mins + maxs) * 0.5
+        extent = np.maximum(maxs - mins, 0.5)
+
+        cam_pos = np.asarray(preview_camera.get("position", [0.0, 1.55, 0.0]), dtype=np.float32)
+        cam_target = np.asarray(preview_camera.get("target", [0.0, 0.8, 25.0]), dtype=np.float32)
+        forward = cam_target - cam_pos
+        forward_norm = np.linalg.norm(forward)
+        if forward_norm > 1e-6:
+            forward = forward / forward_norm
+        else:
+            forward = np.array([0.0, -0.08, 1.0], dtype=np.float32)
+
+        pitch_deg = float(np.degrees(np.arcsin(np.clip(forward[1], -1.0, 1.0))))
+        pitch_deg = float(np.clip(pitch_deg * 2.5, -12.0, -5.0))
+
+        tb = Trackball(pitch=pitch_deg, roll=180.0, distance=3.2)
+        tb.fov = float(preview_camera.get("fov", 60.0))
+        tb.near = float(preview_camera.get("near", 0.1))
+        tb.far = float(preview_camera.get("far", 120.0))
+
+        lateral_center = float(center[0])
+        camera_height = float(cam_pos[1])
+        lower_bias = float(np.clip(camera_height * 0.78, 0.9, 1.45))
+        tb.pos2d = vec(-lateral_center, -lower_bias)
+
+        depth_boost = float(np.clip(extent[2] * 0.015, 0.0, 1.2))
+        tb.distance = max(2.8, 3.2 + depth_boost)
+
+        self.default_trackball = tb
+        self.active_camera_idx = 0
         return True
 
     def on_mouse_move(self, window, xpos, ypos):
