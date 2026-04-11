@@ -108,7 +108,7 @@ class ModelLoader(BaseShape):
             return None
 
         supported_exts = {'.png', '.jpg', '.jpeg', '.tga', '.bmp', '.tif', '.tiff'}
-        preferred_tags = ('basecolor', 'base_color', 'albedo', 'diffuse', 'color')
+        preferred_tags = ('basecolor', 'base_color', 'albedo', 'diffuse', 'diff', 'dif', 'color')
         reject_tags = ('normal', 'roughness', 'metal', 'metallic', 'ao', 'ambient', 'spec', 'gloss', 'opacity', 'invert')
         material_key = self._normalize_material_name(material_name)
         best_score = 0
@@ -147,6 +147,42 @@ class ModelLoader(BaseShape):
                 best_path = candidate_path
 
         return os.path.normpath(best_path) if best_score > 0 else None
+
+    def _guess_folder_texture_path(self, search_dir):
+        """Pick a diffuse texture from the OBJ folder when no MTL is provided."""
+        if not search_dir or not os.path.isdir(search_dir):
+            return None
+
+        supported_exts = {'.png', '.jpg', '.jpeg', '.tga', '.bmp', '.tif', '.tiff'}
+        preferred_tags = ('basecolor', 'base_color', 'albedo', 'diffuse', 'diff', 'dif', 'color')
+        reject_tags = ('normal', 'roughness', 'metal', 'metallic', 'ao', 'ambient', 'spec', 'gloss', 'opacity', 'invert')
+        candidates = []
+
+        try:
+            entries = os.listdir(search_dir)
+        except OSError:
+            return None
+
+        for entry in entries:
+            candidate_path = os.path.join(search_dir, entry)
+            stem, ext = os.path.splitext(entry)
+            if ext.lower() not in supported_exts or not os.path.isfile(candidate_path):
+                continue
+
+            stem_key = self._normalize_material_name(stem)
+            if any(tag in stem_key for tag in reject_tags):
+                continue
+
+            score = 1
+            if any(tag in stem_key for tag in preferred_tags):
+                score += 10
+            candidates.append((score, candidate_path))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: (-item[0], os.path.basename(item[1]).lower()))
+        return os.path.normpath(candidates[0][1])
 
     def _load_mtl_file(self, mtl_path):
         # Đọc file .mtl để lấy thông tin material, chủ yếu là:
@@ -293,6 +329,7 @@ class ModelLoader(BaseShape):
         self.indices = np.array(out_indices, dtype=np.int32)
         self.texcoords = np.array(out_texcoords, dtype=np.float32)
         self.normals = np.array(out_normals, dtype=np.float32)
+        self.vertices, self.normals = self._apply_source_orientation(self.vertices, self.normals, filename)
 
         if len(out_colors) == len(out_vertices):
             self.colors = np.array(out_colors, dtype=np.float32)
@@ -308,6 +345,15 @@ class ModelLoader(BaseShape):
                 self.material_texture_paths[material_name] = texture_path
                 if self.material_texture_path is None:
                     self.material_texture_path = texture_path
+
+        if not self.material_texture_paths:
+            fallback_texture = self._guess_folder_texture_path(obj_dir)
+            if fallback_texture and os.path.exists(fallback_texture):
+                fallback_material = current_material
+                if self.material_groups:
+                    fallback_material = self.material_groups[0]['material']
+                self.material_texture_paths[fallback_material] = fallback_texture
+                self.material_texture_path = fallback_texture
 
         self.material_groups = [group for group in self.material_groups if group['count'] > 0]
         
@@ -456,6 +502,7 @@ class ModelLoader(BaseShape):
             
         # Chuyển đổi sang numpy arrays
         self.vertices = np.array(vertices, dtype=np.float32)
+        self.vertices, _ = self._apply_source_orientation(self.vertices, None, filename)
         
         # Flatten faces thành indices array
         indices = []
@@ -472,6 +519,27 @@ class ModelLoader(BaseShape):
         # Generate normals và normalize model
         self._generate_normals()
         self._normalize_model()
+
+    def _apply_source_orientation(self, vertices, normals, filename):
+        """Fix known asset coordinate systems before the model is normalized."""
+        if not filename:
+            return vertices, normals
+
+        lowered = str(filename).replace("\\", "/").lower()
+        if not any(token in lowered for token in ("traffic_light", "trafficlights", "stoplight", "signal")):
+            return vertices, normals
+
+        vertices = np.nan_to_num(vertices, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        if normals is not None:
+            normals = np.nan_to_num(normals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        # The bundled stoplight is authored Z-up; the scene and controls are Y-up.
+        rotated_vertices = np.column_stack((vertices[:, 0], vertices[:, 2], -vertices[:, 1])).astype(np.float32)
+        rotated_normals = (
+            np.column_stack((normals[:, 0], normals[:, 2], -normals[:, 1])).astype(np.float32)
+            if normals is not None
+            else None
+        )
+        return rotated_vertices, rotated_normals
 
     def _generate_normals(self):
         normals = np.zeros_like(self.vertices)

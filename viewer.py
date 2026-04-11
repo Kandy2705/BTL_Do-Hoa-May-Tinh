@@ -4,6 +4,7 @@ import imgui
 from imgui.integrations.glfw import GlfwRenderer
 import itertools
 import numpy as np
+from pathlib import Path
 from libs.transform import Trackball, lookat, ortho, vec
 from PIL import Image
 
@@ -57,6 +58,22 @@ class Viewer:
         self.move_texture_id, _, _ = self.load_texture("assets/textures/arrows-up-down-left-right-solid.png")
         self.rotate_texture_id, _, _ = self.load_texture("assets/textures/arrows-rotate-solid.png")
         self.scale_texture_id, _, _ = self.load_texture("assets/textures/up-right-from-square-solid.png")
+        self._btl2_preview_image_caches = {
+            "dataset": {
+                "path": "",
+                "mtime": 0.0,
+                "texture_id": None,
+                "width": 0,
+                "height": 0,
+            },
+            "inference": {
+                "path": "",
+                "mtime": 0.0,
+                "texture_id": None,
+                "width": 0,
+                "height": 0,
+            },
+        }
 
         glfw.set_scroll_callback(self.win, self._on_scroll)
         glfw.set_cursor_pos_callback(self.win, self.on_mouse_move)
@@ -353,6 +370,43 @@ class Viewer:
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
         
         return texture_id, width, height
+
+    def get_btl2_preview_texture(self, image_path, cache_key="dataset"):
+        if not image_path:
+            return None
+
+        path = Path(image_path)
+        if not path.exists():
+            return None
+
+        mtime = path.stat().st_mtime
+        cache = self._btl2_preview_image_caches.setdefault(
+            cache_key,
+            {
+                "path": "",
+                "mtime": 0.0,
+                "texture_id": None,
+                "width": 0,
+                "height": 0,
+            },
+        )
+        if cache["path"] == str(path) and cache["mtime"] == mtime and cache["texture_id"] is not None:
+            return cache
+
+        if cache["texture_id"] is not None:
+            gl.glDeleteTextures([int(cache["texture_id"])])
+
+        texture_id, width, height = self.load_texture(str(path))
+        cache.update(
+            {
+                "path": str(path),
+                "mtime": mtime,
+                "texture_id": texture_id,
+                "width": width,
+                "height": height,
+            }
+        )
+        return cache
 
     def should_close(self) -> bool:
         return glfw.window_should_close(self.win)
@@ -758,7 +812,9 @@ class Viewer:
         # 8. BTL 2 BRIDGE PANEL
         if model.selected_category == 6:
             from components.btl2_panel import BTL2Panel
-            btl2_actions = BTL2Panel.draw(model)
+            dataset_preview = self.get_btl2_preview_texture(getattr(model, "btl2_preview_path", ""), cache_key="dataset")
+            inference_preview = self.get_btl2_preview_texture(getattr(model, "btl2_inference_preview_path", ""), cache_key="inference")
+            btl2_actions = BTL2Panel.draw(model, dataset_preview, inference_preview)
             actions.update(btl2_actions)
         
         return actions

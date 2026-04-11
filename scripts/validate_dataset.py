@@ -14,7 +14,9 @@ from btl2.annotations.validators import run_full_validation
 
 def main() -> int:
     """Run all validators and print a concise report."""
-    dataset_root = ROOT / "outputs" / "btl2" / "demo_dataset"
+    dataset_root = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else ROOT / "outputs" / "btl2" / "demo_dataset"
+    if not dataset_root.is_absolute():
+        dataset_root = (ROOT / dataset_root).resolve()
     issues = run_full_validation(dataset_root)
     if issues:
         print("Validation failed:")

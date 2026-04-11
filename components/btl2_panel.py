@@ -58,13 +58,13 @@ class BTL2Panel:
         return issues
 
     @staticmethod
-    def draw(model):
+    def draw(model, dataset_preview=None, inference_preview=None):
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         win_w = max(win_w, 800)
         win_h = max(win_h, 600)
 
-        panel_w = 380
+        panel_w = 420
         imgui.set_next_window_position(win_w - panel_w, 20)
         imgui.set_next_window_size(panel_w, max(win_h - 20, 100))
         imgui.begin("BTL2 Dataset Builder", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
@@ -166,6 +166,114 @@ class BTL2Panel:
             imgui.text_wrapped(f"Sample RGB: {first_frame.get('rgb', '')}")
             if first_frame.get('depth'):
                 imgui.text_wrapped(f"Sample depth: {first_frame.get('depth', '')}")
+
+        imgui.separator()
+        imgui.text("5) Preview")
+        sample_frame = getattr(model, "btl2_preview_source_image_path", "")
+        if sample_frame:
+            imgui.text_wrapped(f"Sample frame: {sample_frame}")
+
+        preview_tabs = [
+            ("RGB", "rgb"),
+            ("Depth", "depth"),
+            ("Mask", "mask"),
+            ("GT Boxes", "boxes"),
+        ]
+        for idx, (label, mode) in enumerate(preview_tabs):
+            is_active = getattr(model, "btl2_preview_mode", "rgb") == mode
+            if is_active:
+                imgui.push_style_color(imgui.COLOR_BUTTON, 0.24, 0.53, 0.78, 1.0)
+                imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 0.28, 0.58, 0.84, 1.0)
+            if imgui.button(label):
+                actions["btl2_preview_mode"] = mode
+            if is_active:
+                imgui.pop_style_color()
+                imgui.pop_style_color()
+            if idx < len(preview_tabs) - 1:
+                imgui.same_line()
+
+        if imgui.button("Refresh Preview"):
+            actions["btl2_refresh_preview"] = True
+
+        preview_status = getattr(model, "btl2_preview_status", "")
+        if preview_status:
+            imgui.text_wrapped(preview_status)
+        preview_path = getattr(model, "btl2_preview_path", "")
+        if preview_path:
+            imgui.text_wrapped(f"Preview file: {preview_path}")
+
+        if dataset_preview and dataset_preview.get("texture_id"):
+            texture_id = dataset_preview["texture_id"]
+            width = max(float(dataset_preview.get("width", 1)), 1.0)
+            height = max(float(dataset_preview.get("height", 1)), 1.0)
+            available_width = max(imgui.get_window_width() - 36.0, 120.0)
+            display_width = min(available_width, width)
+            display_height = display_width * (height / width)
+            imgui.image(texture_id, display_width, display_height)
+
+        imgui.separator()
+        imgui.text("6) YOLO Inference")
+        inf_status_name, inf_status_color, inf_status_text = BTL2Panel._status_meta(
+            getattr(model, "btl2_inference_status", "")
+        )
+        imgui.text("Inference status:")
+        imgui.same_line()
+        imgui.push_style_color(imgui.COLOR_TEXT, inf_status_color[0], inf_status_color[1], inf_status_color[2])
+        imgui.text(inf_status_name)
+        imgui.pop_style_color()
+        imgui.text_wrapped(inf_status_text)
+
+        changed_weight, new_weight = imgui.input_text(
+            "Weight file",
+            getattr(model, "btl2_detector_weight_path", ""),
+            512,
+        )
+        if changed_weight:
+            model.btl2_detector_weight_path = new_weight
+        if imgui.button("Latest best.pt"):
+            actions["btl2_pick_latest_weight"] = True
+        imgui.same_line()
+        if imgui.button("Browse Weight"):
+            actions["btl2_browse_weight"] = True
+
+        changed_image, new_image = imgui.input_text(
+            "Image file",
+            getattr(model, "btl2_inference_image_path", ""),
+            512,
+        )
+        if changed_image:
+            model.btl2_inference_image_path = new_image
+        if imgui.button("Use Sample Image"):
+            actions["btl2_pick_sample_image"] = True
+        imgui.same_line()
+        if imgui.button("Browse Image"):
+            actions["btl2_browse_image"] = True
+
+        if imgui.button("Load Detector"):
+            actions["btl2_load_detector"] = True
+        imgui.same_line()
+        if imgui.button("Run Inference"):
+            actions["btl2_run_inference"] = True
+
+        loaded_weight = getattr(model, "btl2_detector_loaded_path", "")
+        if loaded_weight:
+            imgui.text_wrapped(f"Loaded: {loaded_weight}")
+        summary = getattr(model, "btl2_inference_summary", "")
+        if summary:
+            imgui.text_wrapped(f"Detections: {summary}")
+
+        preview_path = getattr(model, "btl2_inference_preview_path", "")
+        if preview_path:
+            imgui.text_wrapped(f"Preview: {preview_path}")
+
+        if inference_preview and inference_preview.get("texture_id"):
+            texture_id = inference_preview["texture_id"]
+            width = max(float(inference_preview.get("width", 1)), 1.0)
+            height = max(float(inference_preview.get("height", 1)), 1.0)
+            available_width = max(imgui.get_window_width() - 36.0, 120.0)
+            display_width = min(available_width, width)
+            display_height = display_width * (height / width)
+            imgui.image(texture_id, display_width, display_height)
 
         imgui.end()
         return actions

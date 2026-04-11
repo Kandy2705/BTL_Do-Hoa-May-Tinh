@@ -1,0 +1,66 @@
+seed: 21
+output_dir: outputs/btl2/showcase_dataset
+image_width: 1280
+image_height: 720
+num_frames: 12
+train_split: 0.8
+preview_every: 1
+save_depth_npy: false
+instance_segmentation: true
+camera:
+  fov_y_degrees: 42.0
+  near: 0.1
+  far: 140.0
+  base_height: 1.7
+  base_pitch_degrees: -3.4
+  height_jitter: 0.0
+  pitch_jitter_degrees: 0.0
+  yaw_jitter_degrees: 0.0
+scene:
+  showcase_layout: true
+  road_length: 72.0
+  road_width: 14.0
+  lane_width: 4.2
+  lane_count: 3
+  sky_top_color: [0.48, 0.69, 0.96]
+  sky_bottom_color: [0.95, 0.98, 1.0]
+  min_objects: 7
+  max_objects: 7
+  classes:
+    person:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.95, 1.0]
+    car:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.95, 1.0]
+    bus:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.95, 1.0]
+    truck:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.95, 1.0]
+    motorbike:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.95, 1.0]
+    traffic_light:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.98, 1.0]
+    traffic_sign:
+      min_count: 1
+      max_count: 1
+      scale_range: [0.98, 1.0]
+lighting:
+  ambient_strength: 0.42
+  directional_intensity_range: [1.0, 1.0]
+  directional_pitch_range: [-38.0, -38.0]
+  directional_yaw_range: [12.0, 12.0]
+annotations:
+  min_bbox_pixels: 4
+  visibility_threshold: 0.0005
+  segmentation_alpha_preview: 0.45

@@ -13,8 +13,16 @@ def linearize_depth(depth_buffer: np.ndarray, near: float, far: float) -> tuple[
     """Convert non-linear OpenGL depth into metric-like linear depth and 8-bit preview."""
     z = depth_buffer * 2.0 - 1.0
     linear = (2.0 * near * far) / np.clip(far + near - z * (far - near), 1e-6, None)
-    normalized = (linear - near) / max(far - near, 1e-6)
-    grayscale = np.clip(normalized * 255.0, 0.0, 255.0).astype(np.uint8)
+
+    finite = linear[np.isfinite(linear)]
+    scene_far = float(np.percentile(finite, 95.0)) if finite.size else float(far)
+    scene_far = min(scene_far, 40.0)
+    visual_far = min(float(far), max(float(near) + 1.0, scene_far))
+    normalized = (linear - near) / max(visual_far - near, 1e-6)
+
+    # Keep depth previews soft and readable for near road scenes instead of
+    # mapping close objects to nearly black against a very large far plane.
+    grayscale = np.clip(92.0 + normalized * 140.0, 0.0, 245.0).astype(np.uint8)
     return linear.astype(np.float32), grayscale
 
 

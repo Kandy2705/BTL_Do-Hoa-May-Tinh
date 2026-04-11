@@ -33,6 +33,7 @@ class RoadSceneBuilder:
     def __init__(self, config: dict, asset_root: str | Path = "assets/models") -> None:
         self.config = config
         self.loader = ObjectLoader(asset_root)
+        self.showcase_layout = bool(self.config.setdefault("scene", {}).get("showcase_layout", False))
         scene_classes = self.config.setdefault("scene", {}).setdefault("classes", {})
         # Backward compatibility with older configs that used "pedestrian".
         if "person" not in scene_classes and "pedestrian" in scene_classes:
@@ -41,13 +42,16 @@ class RoadSceneBuilder:
             "person": AssetSpec(
                 "person",
                 "person_mesh",
-                self._find_asset(("pedestrians", "people", "Pedestrians", "People"), ("person", "pedestrian", "human")),
+                self._find_asset(
+                    ("pedestrians", "people", "Pedestrians", "People", "Person", "person"),
+                    ("person", "pedestrian", "human", "mei"),
+                ),
                 "cylinder",
             ),
             "car": AssetSpec(
                 "car",
                 "car_mesh",
-                self._find_asset(("vehicles", "cars", "Car", "Cars"), ("car", "taxi", "sedan", "suv", "hatch")),
+                self._find_asset(("vehicles", "cars", "Car", "Cars", "car"), ("car", "taxi", "sedan", "suv", "hatch")),
                 "box",
             ),
             "bus": AssetSpec(
@@ -65,19 +69,28 @@ class RoadSceneBuilder:
             "motorbike": AssetSpec(
                 "motorbike",
                 "motorbike_mesh",
-                self._find_asset(("motorbikes", "motorcycles", "bikes", "vehicles"), ("bike", "motor", "scooter")),
+                self._find_asset(
+                    ("motorbikes", "motorcycles", "bikes", "vehicles", "Motorbike", "motorbike", "MotorBike"),
+                    ("bike", "motor", "scooter", "mot"),
+                ),
                 "box",
             ),
             "traffic_sign": AssetSpec(
                 "traffic_sign",
                 "traffic_sign_mesh",
-                self._find_asset(("traffic_signs", "trafficSigns", "signs", "TrafficSigns"), ("sign",)),
+                self._find_asset(
+                    ("traffic_signs", "trafficSigns", "signs", "TrafficSigns", "Traffic_sign", "traffic_sign"),
+                    ("sign", "roadsign"),
+                ),
                 "box",
             ),
             "traffic_light": AssetSpec(
                 "traffic_light",
                 "traffic_light_mesh",
-                self._find_asset(("traffic_lights", "trafficLights", "lights", "TrafficLights"), ("light", "signal")),
+                self._find_asset(
+                    ("traffic_lights", "trafficLights", "lights", "TrafficLights", "Traffic_light", "traffic_light"),
+                    ("light", "signal", "stoplight"),
+                ),
                 "box",
             ),
         }
@@ -112,12 +125,15 @@ class RoadSceneBuilder:
         counts = self._distribute_counts(total_dynamic, randomizer)
 
         instance_id = 1
+        class_spawn_indices = {name: 0 for name in counts}
         for class_name, count in counts.items():
             for _ in range(count):
                 spec = self.asset_specs[class_name]
                 mesh = self.loader.load_or_primitive(spec.relative_path, spec.primitive_name)
                 mesh_registry[spec.mesh_key] = mesh
-                scene.add_object(self._spawn_object(class_name, spec, mesh, instance_id, randomizer))
+                spawn_index = class_spawn_indices.get(class_name, 0)
+                scene.add_object(self._spawn_object(class_name, spec, mesh, instance_id, spawn_index, randomizer))
+                class_spawn_indices[class_name] = spawn_index + 1
                 instance_id += 1
 
         return scene, mesh_registry
@@ -148,9 +164,13 @@ class RoadSceneBuilder:
         spec: AssetSpec,
         mesh: MeshData,
         instance_id: int,
+        spawn_index: int,
         randomizer: Randomizer,
     ) -> SceneObject:
         """Sample a plausible pose and scale for one dynamic road-scene object."""
+        if self.showcase_layout:
+            return self._spawn_showcase_object(class_name, spec, mesh, instance_id, spawn_index, randomizer)
+
         lane_count = int(self.config["scene"]["lane_count"])
         lane_width = float(self.config["scene"]["lane_width"])
         lane_center = ((randomizer.randint(0, lane_count - 1) - (lane_count - 1) / 2.0) * lane_width)
@@ -189,16 +209,9 @@ class RoadSceneBuilder:
 
         scale_cfg = self.config["scene"]["classes"][class_name]["scale_range"]
         uniform_scale = randomizer.uniform(scale_cfg[0], scale_cfg[1])
-        class_scale = {
-            "person": np.array([0.6, 1.8, 0.6], dtype=np.float32),
-            "car": np.array([1.8, 1.2, 4.0], dtype=np.float32),
-            "bus": np.array([2.4, 2.4, 10.5], dtype=np.float32),
-            "truck": np.array([2.3, 2.6, 8.5], dtype=np.float32),
-            "motorbike": np.array([0.8, 1.2, 2.0], dtype=np.float32),
-            "traffic_sign": np.array([0.35, 1.2, 0.15], dtype=np.float32),
-            "traffic_light": np.array([0.45, 2.6, 0.45], dtype=np.float32),
-        }[class_name]
+        class_scale = self._class_scale(class_name, mesh)
         scale = class_scale * uniform_scale
+        y = self._grounded_center_y(class_name, mesh, scale, y)
 
         return SceneObject(
             name=f"{class_name}_{instance_id:03d}",
@@ -213,6 +226,97 @@ class RoadSceneBuilder:
             metadata={"source_asset": spec.relative_path or spec.primitive_name},
             aabb_local=mesh.aabb,
         )
+
+    def _spawn_showcase_object(
+        self,
+        class_name: str,
+        spec: AssetSpec,
+        mesh: MeshData,
+        instance_id: int,
+        spawn_index: int,
+        randomizer: Randomizer,
+    ) -> SceneObject:
+        """Place one deterministic object per class so the preview always shows every class clearly."""
+        road_width = float(self.config["scene"]["road_width"])
+        showcase_positions = {
+            "motorbike": (-2.2, 0.45, 8.0, 180.0),
+            "car": (1.3, 0.55, 10.8, 180.0),
+            "truck": (-3.2, 0.85, 15.8, 180.0),
+            "bus": (3.2, 0.9, 22.0, 180.0),
+            "person": (road_width * 0.23, 0.9, 12.5, 165.0),
+            "traffic_sign": (-road_width * 0.31, 1.5, 7.2, 90.0),
+            "traffic_light": (road_width * 0.31, 2.4, 7.8, -90.0),
+        }
+        default_pose = (0.0, 0.55, 15.0, 180.0)
+        x, y, z, yaw = showcase_positions.get(class_name, default_pose)
+        position_jitter_x = float(self.config["scene"].get("showcase_position_jitter_x", 0.0))
+        position_jitter_z = float(self.config["scene"].get("showcase_position_jitter_z", 0.0))
+        yaw_jitter = float(self.config["scene"].get("showcase_yaw_jitter_degrees", 0.0))
+        if spawn_index:
+            z += 5.0 * spawn_index
+            x += 1.2 * (-1 if spawn_index % 2 else 1)
+        if position_jitter_x > 0.0:
+            x += randomizer.uniform(-position_jitter_x, position_jitter_x)
+        if position_jitter_z > 0.0:
+            z += randomizer.uniform(-position_jitter_z, position_jitter_z)
+        if yaw_jitter > 0.0:
+            yaw += randomizer.uniform(-yaw_jitter, yaw_jitter)
+
+        scale_cfg = self.config["scene"]["classes"][class_name]["scale_range"]
+        uniform_scale = randomizer.uniform(scale_cfg[0], scale_cfg[1])
+        scale = self._class_scale(class_name, mesh) * uniform_scale
+        y = self._grounded_center_y(class_name, mesh, scale, y)
+
+        return SceneObject(
+            name=f"{class_name}_{instance_id:03d}",
+            class_name=class_name,
+            mesh_key=spec.mesh_key,
+            position=np.array([x, y, z], dtype=np.float32),
+            rotation_degrees=np.array([0.0, yaw, 0.0], dtype=np.float32),
+            scale=scale.astype(np.float32),
+            base_color=color_to_float(class_color(class_name)),
+            instance_id=instance_id,
+            semantic_id=CLASS_TO_ID[class_name],
+            metadata={"source_asset": spec.relative_path or spec.primitive_name},
+            aabb_local=mesh.aabb,
+        )
+
+    @staticmethod
+    def _class_scale(class_name: str, mesh: MeshData | None = None) -> np.ndarray:
+        fallback_scale = {
+            "person": np.array([1.8, 1.8, 1.8], dtype=np.float32),
+            "car": np.array([4.6, 4.6, 4.6], dtype=np.float32),
+            "bus": np.array([9.8, 9.8, 9.8], dtype=np.float32),
+            "truck": np.array([6.2, 6.2, 6.2], dtype=np.float32),
+            "motorbike": np.array([2.4, 2.4, 2.4], dtype=np.float32),
+            "traffic_sign": np.array([1.7, 1.7, 1.7], dtype=np.float32),
+            "traffic_light": np.array([2.8, 2.8, 2.8], dtype=np.float32),
+        }[class_name]
+
+        if mesh is None or mesh.aabb is None:
+            return fallback_scale
+
+        extent = mesh.aabb.max_corner - mesh.aabb.min_corner
+        if np.any(extent <= 1e-6):
+            return fallback_scale
+
+        target_axis, target_size = {
+            "person": (1, 1.8),
+            "car": (2, 4.6),
+            "bus": (2, 9.8),
+            "truck": (2, 6.2),
+            "motorbike": (0, 2.4),
+            "traffic_sign": (1, 1.7),
+            "traffic_light": (1, 2.8),
+        }[class_name]
+        uniform_scale = float(target_size / extent[target_axis])
+        return np.array([uniform_scale, uniform_scale, uniform_scale], dtype=np.float32)
+
+    @staticmethod
+    def _grounded_center_y(class_name: str, mesh: MeshData, scale: np.ndarray, fallback_y: float) -> float:
+        if class_name == "road" or mesh.aabb is None:
+            return fallback_y
+        return float(max(0.02, -float(mesh.aabb.min_corner[1]) * float(scale[1])))
 
     def _distribute_counts(self, total_dynamic: int, randomizer: Randomizer) -> dict[str, int]:
         """Allocate object counts per class while respecting config limits."""
@@ -243,12 +347,14 @@ class RoadSceneBuilder:
         """Find a mesh from candidate folders; prefer filenames containing keywords."""
         candidates = self._collect_assets(*category_dirs)
         if not candidates:
+            candidates = self._collect_all_assets()
+        if not candidates:
             return None
         if keywords:
             keyword_lc = tuple(k.lower() for k in keywords if k)
             for rel in candidates:
-                filename = Path(rel).name.lower()
-                if any(k in filename for k in keyword_lc):
+                rel_lc = rel.lower()
+                if any(k in rel_lc for k in keyword_lc):
                     return rel
         return candidates[0]
 
@@ -264,6 +370,16 @@ class RoadSceneBuilder:
                 for match in sorted(category_path.rglob(pattern)):
                     if match.is_file():
                         collected.append(str(match.relative_to(asset_root)))
+        return collected
+
+    def _collect_all_assets(self) -> list[str]:
+        """Collect every OBJ/PLY asset from the models root as a keyword-search fallback."""
+        asset_root = self.loader.asset_root
+        collected: list[str] = []
+        for pattern in ("*.obj", "*.ply"):
+            for match in sorted(asset_root.rglob(pattern)):
+                if match.is_file():
+                    collected.append(str(match.relative_to(asset_root)))
         return collected
 
     def _first_asset(self, category_dir: str) -> str | None:

@@ -26,6 +26,7 @@ DEFAULT_OUTPUT_SUBDIRS = (
     "labels_yolo/train",
     "labels_yolo/val",
     "annotations_coco",
+    "annotations_custom",
     "metadata/train",
     "metadata/val",
     "previews",

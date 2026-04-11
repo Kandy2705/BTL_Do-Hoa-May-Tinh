@@ -87,7 +87,7 @@ class ObjectLoader:
                                     normals_out.append([0.0, 1.0, 0.0])
                             indices_out.append(vertex_map[cache_key])
 
-        return self._finalize_mesh(vertices_out, normals_out, indices_out)
+        return self._finalize_mesh(vertices_out, normals_out, indices_out, source_path=path)
 
     def _load_ply_ascii(self, path: Path) -> MeshData:
         """Load a minimal ASCII PLY with vertex positions and face lists."""
@@ -123,7 +123,7 @@ class ObjectLoader:
             for tri in self._triangulate_index_list(face):
                 indices.extend(tri)
 
-        return self._finalize_mesh(positions.tolist(), normals.tolist(), indices)
+        return self._finalize_mesh(positions.tolist(), normals.tolist(), indices, source_path=path)
 
     @staticmethod
     def _parse_obj_corner(token: str, num_positions: int, num_normals: int) -> tuple[int, int | None]:
@@ -240,7 +240,12 @@ class ObjectLoader:
         return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)))
 
     @staticmethod
-    def _finalize_mesh(vertices: list[list[float]], normals: list[list[float]], indices: list[int]) -> MeshData:
+    def _finalize_mesh(
+        vertices: list[list[float]],
+        normals: list[list[float]],
+        indices: list[int],
+        source_path: Path | None = None,
+    ) -> MeshData:
         """Convert parsed mesh lists to NumPy arrays and build the AABB."""
         if not vertices or not indices:
             loader = ObjectLoader(".")
@@ -248,8 +253,30 @@ class ObjectLoader:
         vertices_np = np.asarray(vertices, dtype=np.float32)
         normals_np = np.asarray(normals, dtype=np.float32)
         indices_np = np.asarray(indices, dtype=np.uint32)
+        vertices_np, normals_np = ObjectLoader._apply_source_orientation(vertices_np, normals_np, source_path)
         vertices_np = ObjectLoader._normalize_loaded_vertices(vertices_np)
         return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)))
+
+    @staticmethod
+    def _apply_source_orientation(
+        vertices: np.ndarray,
+        normals: np.ndarray,
+        source_path: Path | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Fix known asset coordinate systems before the mesh is normalized."""
+        if source_path is None:
+            return vertices, normals
+
+        lowered = str(source_path).replace("\\", "/").lower()
+        if not any(token in lowered for token in ("traffic_light", "trafficlights", "stoplight", "signal")):
+            return vertices, normals
+
+        vertices = np.nan_to_num(vertices, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        normals = np.nan_to_num(normals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        # The bundled stoplight is authored Z-up; the rest of the scene is Y-up.
+        rotated_vertices = np.column_stack((vertices[:, 0], vertices[:, 2], -vertices[:, 1])).astype(np.float32)
+        rotated_normals = np.column_stack((normals[:, 0], normals[:, 2], -normals[:, 1])).astype(np.float32)
+        return rotated_vertices, rotated_normals
 
     @staticmethod
     def _normalize_loaded_vertices(vertices: np.ndarray) -> np.ndarray:

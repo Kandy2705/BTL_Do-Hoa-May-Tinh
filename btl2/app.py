@@ -10,6 +10,7 @@ import glfw
 
 from btl2.annotations.bbox import compute_bounding_boxes
 from btl2.annotations.coco_export import CocoExporter
+from btl2.annotations.custom_export import CustomCsvExporter
 from btl2.annotations.depth_export import linearize_depth, save_depth_outputs
 from btl2.annotations.metadata_export import export_frame_metadata
 from btl2.annotations.occlusion import estimate_occlusion_ratios
@@ -27,7 +28,7 @@ from btl2.scene.road_scene_builder import RoadSceneBuilder
 from btl2.scene.scene import CameraState, DirectionalLight, Scene
 from btl2.scene.scene_object import SceneObject
 from btl2.scene.object_loader import MeshData
-from btl2.utils.colors import color_to_float, instance_color
+from btl2.utils.colors import class_color, color_to_float, instance_color
 from btl2.utils.image import save_mask, save_rgb
 from btl2.utils.io import ensure_output_tree
 from btl2.utils.constants import CLASS_TO_ID
@@ -71,6 +72,7 @@ class SyntheticRoadApp:
         self.depth_pass = DepthRenderPass("shaders/btl2")
         self.seg_pass = SegmentationRenderPass("shaders/btl2")
         self.coco_exporter = CocoExporter()
+        self.custom_csv_exporter = CustomCsvExporter()
 
     def close(self) -> None:
         """Release the offscreen OpenGL context."""
@@ -86,9 +88,11 @@ class SyntheticRoadApp:
             frame = self.render_frame(scene, mesh_registry)
             paths = self.export_frame(scene, frame)
             self.coco_exporter.add_frame(scene.frame_id, scene.split, scene.camera.image_width, scene.camera.image_height, frame.bboxes, paths)
+            self.custom_csv_exporter.add_frame(scene.frame_id, scene.split, frame.bboxes, paths)
             summaries.append(paths)
 
         self.coco_exporter.write(self.output_root / "annotations_coco")
+        self.custom_csv_exporter.write(self.output_root / "annotations_custom")
         write_dataset_yaml(self.output_root, list(self.coco_exporter.categories.values()))
         return summaries
 
@@ -126,9 +130,11 @@ class SyntheticRoadApp:
             frame = self.render_frame(scene, mesh_registry)
             paths = self.export_frame(scene, frame)
             self.coco_exporter.add_frame(scene.frame_id, scene.split, scene.camera.image_width, scene.camera.image_height, frame.bboxes, paths)
+            self.custom_csv_exporter.add_frame(scene.frame_id, scene.split, frame.bboxes, paths)
             summaries.append(paths)
 
         self.coco_exporter.write(self.output_root / "annotations_coco")
+        self.custom_csv_exporter.write(self.output_root / "annotations_custom")
         write_dataset_yaml(self.output_root, list(self.coco_exporter.categories.values()))
         return summaries
 
@@ -214,7 +220,10 @@ class SyntheticRoadApp:
         """Create per-object materials for RGB and segmentation passes."""
         materials: dict[int, Material] = {}
         for obj in scene.objects:
-            seg_color = color_to_float(instance_color(obj.instance_id if obj.instance_id > 0 else 0))
+            if obj.class_name == "road":
+                seg_color = color_to_float(class_color("road"))
+            else:
+                seg_color = color_to_float(instance_color(obj.instance_id if obj.instance_id > 0 else 0))
             materials[obj.instance_id] = Material(base_color=obj.base_color, segmentation_color=seg_color)
         return materials
 
@@ -242,6 +251,11 @@ class SyntheticRoadApp:
             mesh_key = f"btl1_mesh_{obj.id}"
             mesh_registry[mesh_key] = mesh
             class_name = self._infer_class_name(obj.name)
+            if class_name is None:
+                continue
+            is_road = class_name == "road"
+            current_instance_id = 0 if is_road else instance_id
+            semantic_id = 255 if is_road else CLASS_TO_ID[class_name]
             scene.add_object(
                 SceneObject(
                     name=obj.name,
@@ -250,14 +264,15 @@ class SyntheticRoadApp:
                     position=np.asarray(obj.position, dtype=np.float32),
                     rotation_degrees=np.asarray(obj.rotation, dtype=np.float32),
                     scale=np.asarray(obj.scale, dtype=np.float32),
-                    base_color=np.asarray(obj.color[:3], dtype=np.float32),
-                    instance_id=instance_id,
-                    semantic_id=CLASS_TO_ID[class_name],
+                    base_color=self._base_color_from_btl1(obj, class_name),
+                    instance_id=current_instance_id,
+                    semantic_id=semantic_id,
                     metadata={"source": "btl1_scene", "original_name": obj.name},
                     aabb_local=mesh.aabb,
                 )
             )
-            instance_id += 1
+            if not is_road:
+                instance_id += 1
 
         if not scene.objects:
             raise RuntimeError("Scene hien tai khong co drawable hop le de xuat dataset.")
@@ -347,9 +362,11 @@ class SyntheticRoadApp:
         )
 
     @staticmethod
-    def _infer_class_name(name: str) -> str:
+    def _infer_class_name(name: str) -> str | None:
         """Infer one of the BTL2 training classes from an object name."""
         lowered = name.lower()
+        if any(token in lowered for token in ("road", "street", "lane", "ground", "floor", "terrain")):
+            return "road"
         if any(token in lowered for token in ("ped", "human", "person", "walker")):
             return "person"
         if any(token in lowered for token in ("motorbike", "motorcycle", "moto", "bike", "scooter")):
@@ -363,3 +380,18 @@ class SyntheticRoadApp:
         if any(token in lowered for token in ("light", "signal")):
             return "traffic_light"
         return "car"
+
+    @staticmethod
+    def _base_color_from_btl1(obj, class_name: str) -> np.ndarray:
+        """Use explicit object color when available, otherwise use stable class color."""
+        class_rgb = color_to_float(class_color(class_name))
+        raw_color = np.asarray(getattr(obj, "color", [1.0, 1.0, 1.0])[:3], dtype=np.float32)
+        if raw_color.size != 3 or not np.all(np.isfinite(raw_color)):
+            return class_rgb
+
+        alpha = float(getattr(obj, "color", [1.0, 1.0, 1.0, 1.0])[3]) if len(getattr(obj, "color", [])) >= 4 else 1.0
+        is_default_white = bool(np.all(raw_color > 0.92))
+        is_default_black = bool(np.all(raw_color < 0.04))
+        if class_name == "road" or alpha <= 0.05 or is_default_white or is_default_black:
+            return class_rgb
+        return np.clip(raw_color, 0.0, 1.0).astype(np.float32)

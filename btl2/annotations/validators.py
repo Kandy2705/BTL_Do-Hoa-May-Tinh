@@ -8,6 +8,22 @@ from pathlib import Path
 from PIL import Image
 
 
+def _iter_image_files(image_dir: Path) -> list[Path]:
+    """Return dataset image files across common RGB extensions."""
+    image_paths: list[Path] = []
+    for pattern in ("*.png", "*.jpg", "*.jpeg"):
+        image_paths.extend(sorted(image_dir.glob(pattern)))
+    return sorted(image_paths)
+
+
+def _resolve_mask_path(mask_dir: Path, stem: str) -> Path | None:
+    """Support both repo-native `_mask` suffix and plain shared stems."""
+    for candidate in (mask_dir / f"{stem}_mask.png", mask_dir / f"{stem}_layer.png", mask_dir / f"{stem}.png"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def validate_yolo_labels(labels_dir: str | Path) -> list[str]:
     """Check YOLO labels have five values and normalized ranges."""
     issues: list[str] = []
@@ -54,9 +70,9 @@ def validate_dataset_tree(output_root: str | Path) -> list[str]:
         mask_dir = root / "masks" / split
         labels_dir = root / "labels_yolo" / split
         metadata_dir = root / "metadata" / split
-        for image_path in sorted(image_dir.glob("*.png")):
+        for image_path in _iter_image_files(image_dir):
             stem = image_path.stem
-            if not (mask_dir / f"{stem}_mask.png").exists():
+            if _resolve_mask_path(mask_dir, stem) is None:
                 issues.append(f"{image_path}: missing mask image.")
             if not (labels_dir / f"{stem}.txt").exists():
                 issues.append(f"{image_path}: missing YOLO label.")
@@ -83,7 +99,15 @@ def run_full_validation(output_root: str | Path) -> list[str]:
     issues.extend(validate_dataset_tree(root))
     for split in ("train", "val"):
         issues.extend(validate_yolo_labels(root / "labels_yolo" / split))
-        issues.extend(validate_instance_masks(root / "masks" / split))
-    issues.extend(validate_coco_json(root / "annotations_coco" / "train.json"))
-    issues.extend(validate_coco_json(root / "annotations_coco" / "val.json"))
+        mask_dir = root / "masks" / split
+        if mask_dir.exists():
+            issues.extend(validate_instance_masks(mask_dir))
+
+    coco_dir = root / "annotations_coco"
+    train_coco = coco_dir / "train.json"
+    val_coco = coco_dir / "val.json"
+    if train_coco.exists():
+        issues.extend(validate_coco_json(train_coco))
+    if val_coco.exists():
+        issues.extend(validate_coco_json(val_coco))
     return issues

@@ -484,6 +484,12 @@ class AppController:
                 f"renderables={self.model.btl2_scene_renderable_count}"
             )
 
+        if 'btl2_preview_mode' in actions:
+            self.model.set_btl2_preview_mode(actions['btl2_preview_mode'])
+
+        if 'btl2_refresh_preview' in actions:
+            self.model.refresh_btl2_preview()
+
         if 'btl2_generate' in actions:
             try:
                 self.model.btl2_last_status = "Running: BTL2 generation in progress..."
@@ -510,6 +516,76 @@ class AppController:
             except Exception as exc:
                 self.model.btl2_last_status = f"Failed: {exc}"
                 print(self.model.btl2_last_status)
+
+        if 'btl2_pick_latest_weight' in actions:
+            latest_weight = self.model._find_latest_yolo_weight()
+            if latest_weight:
+                self.model.btl2_detector_weight_path = latest_weight
+                self.model.btl2_inference_status = f"Suggested weight: {latest_weight}"
+                print(f"Đã gợi ý best.pt mới nhất: {latest_weight}")
+            else:
+                self.model.btl2_inference_status = "Failed: khong tim thay best.pt trong outputs/training/yolo."
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_pick_sample_image' in actions:
+            sample_image = self.model._find_current_output_image() or self.model._find_default_inference_image()
+            if sample_image:
+                self.model.btl2_inference_image_path = sample_image
+                self.model.btl2_inference_status = f"Suggested image: {sample_image}"
+                print(f"Đã gợi ý ảnh sample: {sample_image}")
+            else:
+                self.model.btl2_inference_status = "Failed: khong tim thay anh sample trong outputs/btl2."
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_browse_weight' in actions:
+            self._browse_btl2_weight_file()
+
+        if 'btl2_browse_image' in actions:
+            self._browse_btl2_image_file()
+
+        if 'btl2_load_detector' in actions:
+            try:
+                result = self.model.load_btl2_detector()
+                print(f"YOLO loaded: {result['weights']} ({result['device']})")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_run_inference' in actions:
+            try:
+                self.model.btl2_inference_status = "Running: YOLO inference in progress..."
+                result = self.model.run_btl2_inference()
+                print(
+                    "YOLO inference OK:",
+                    f"detections={result.get('detections', 0)},",
+                    f"preview={result.get('preview', '')}",
+                )
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+    def _browse_file_dialog(self, prompt: str):
+        """Open a native macOS file dialog and return the chosen path or None."""
+        import platform
+        import subprocess
+
+        if platform.system() != "Darwin":
+            print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
+            return None
+
+        try:
+            script = f'''
+            try
+                set chosen_file to choose file with prompt "{prompt}"
+                POSIX path of chosen_file
+            end try
+            '''
+            result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception as exc:
+            print(f"Lỗi khi mở hộp thoại Mac: {exc}")
+        return None
 
     def _browse_texture_file(self):
         """Open file browser for texture files using macOS native dialog"""
@@ -577,6 +653,24 @@ class AppController:
         else:
             print("Tính năng chọn model hiện chỉ hỗ trợ giao diện native trên macOS.")
             print("Vui lòng nhập đường dẫn thủ công.")
+
+    def _browse_btl2_weight_file(self):
+        filename = self._browse_file_dialog("Select YOLO Weight File (.pt):")
+        if filename:
+            self.model.btl2_detector_weight_path = filename
+            self.model.btl2_inference_status = f"Selected weight: {filename}"
+            print(f"Đã chọn YOLO weight: {filename}")
+        else:
+            print("Đã hủy chọn weight.")
+
+    def _browse_btl2_image_file(self):
+        filename = self._browse_file_dialog("Select Image for YOLO Inference (.png, .jpg):")
+        if filename:
+            self.model.btl2_inference_image_path = filename
+            self.model.btl2_inference_status = f"Selected image: {filename}"
+            print(f"Đã chọn ảnh inference: {filename}")
+        else:
+            print("Đã hủy chọn ảnh.")
 
     # Đổi tham số obj_id thành target_obj
     def _browse_texture_for_specific_object(self, target_obj):

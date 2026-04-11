@@ -61,6 +61,6 @@ lighting:
   directional_pitch_range: [-65.0, -25.0]
   directional_yaw_range: [-30.0, 30.0]
 annotations:
-  min_bbox_pixels: 8
-  visibility_threshold: 0.02
+  min_bbox_pixels: 4
+  visibility_threshold: 0.0005
   segmentation_alpha_preview: 0.45

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import math
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -138,8 +139,8 @@ class AppModel:
         # === BTL 2 Synthetic Dataset Bridge State ===
         # Các state này là chiếc cầu nối giữa app tương tác của BTL 1
         # và pipeline sinh dataset tự động của BTL 2 trong thư mục btl2/.
-        self.btl2_config_path: str = "configs/btl2/default.yaml"
-        self.btl2_output_dir: str = "outputs/btl2/demo_dataset"
+        self.btl2_config_path: str = "configs/btl2/showcase_full.yaml"
+        self.btl2_output_dir: str = "outputs/btl2/showcase_dataset"
         self.btl2_num_frames: int = 20
         self.btl2_seed: int = 42
         self.btl2_source_mode: str = "current_scene"
@@ -148,6 +149,21 @@ class AppModel:
         self.btl2_scene_camera_count: int = 0
         self.btl2_scene_renderable_count: int = 0
         self.btl2_preview_camera_state: Dict[str, Any] = {}
+        self.btl2_detector_weight_path: str = self._find_latest_yolo_weight()
+        self.btl2_detector_loaded_path: str = ""
+        self.btl2_detector_loaded_mtime: float = 0.0
+        self.btl2_preview_mode: str = "rgb"
+        self.btl2_preview_source_image_path: str = self._find_default_preview_image()
+        self.btl2_preview_path: str = ""
+        self.btl2_preview_status: str = "Idle: chua co dataset preview."
+        self.btl2_inference_image_path: str = self._find_default_preview_image()
+        self.btl2_inference_preview_path: str = ""
+        self.btl2_inference_status: str = "Idle: chua load detector."
+        self.btl2_inference_summary: str = ""
+        self.btl2_inference_device: str = self._detect_btl2_inference_device()
+        self.btl2_inference_last_result: Dict[str, Any] = {}
+        self._btl2_detector: Optional[Any] = None
+        self.refresh_btl2_preview()
 
         # === Lab: Sphere quaternion SLERP animation ===
         self.lab_slerp_enabled: bool = False                    # Bật/tắt animation quay tròn
@@ -369,6 +385,7 @@ class AppModel:
             self.btl2_num_frames = int(cfg.get("num_frames", self.btl2_num_frames))
             self.btl2_seed = int(cfg.get("seed", self.btl2_seed))
         self.refresh_btl2_scene_summary()
+        self._refresh_btl2_inference_defaults()
 
     def refresh_btl2_scene_summary(self) -> None:
         """Đếm nhanh scene hiện tại có bao nhiêu camera và object render được cho BTL 2."""
@@ -403,6 +420,7 @@ class AppModel:
             "first_frame": summaries[0] if summaries else None,
         }
         self.btl2_last_status = f"Done: generated {len(summaries)} frames -> {self.btl2_output_dir}"
+        self._refresh_btl2_inference_defaults()
         return self.btl2_last_result
 
     def run_btl2_from_current_scene(self) -> dict[str, Any]:
@@ -436,7 +454,440 @@ class AppModel:
             "first_frame": summaries[0] if summaries else None,
         }
         self.btl2_last_status = f"Done: exported {len(summaries)} frames from current BTL1 scene -> {self.btl2_output_dir}"
+        self._refresh_btl2_inference_defaults()
         return self.btl2_last_result
+
+    @staticmethod
+    def _detect_btl2_inference_device() -> str:
+        try:
+            import torch
+
+            if torch.backends.mps.is_available():
+                return "mps"
+            if torch.cuda.is_available():
+                return "0"
+        except Exception:
+            pass
+        return "cpu"
+
+    @staticmethod
+    def _image_candidates(image_dir: Path) -> List[Path]:
+        image_paths: List[Path] = []
+        for pattern in ("*.png", "*.jpg", "*.jpeg"):
+            image_paths.extend(sorted(image_dir.glob(pattern)))
+        return sorted(image_paths)
+
+    @staticmethod
+    def _yolo_label_for_image(image_path: Path) -> Optional[Path]:
+        """Return the matching YOLO label path for a dataset image, if any."""
+        try:
+            split = image_path.parent.name
+            dataset_root = image_path.parents[2]
+        except IndexError:
+            return None
+
+        for labels_dirname in ("labels_yolo", "labels"):
+            candidate = dataset_root / labels_dirname / split / f"{image_path.stem}.txt"
+            if candidate.exists():
+                return candidate
+        return None
+
+    @classmethod
+    def _image_has_yolo_annotations(cls, image_path: Path) -> bool:
+        label_path = cls._yolo_label_for_image(image_path)
+        if label_path is None:
+            return False
+        try:
+            return bool(label_path.read_text(encoding="utf-8").strip())
+        except OSError:
+            return False
+
+    def _find_latest_yolo_weight(self) -> str:
+        weights_root = Path("outputs/training/yolo")
+        if not weights_root.exists():
+            return ""
+
+        candidates = sorted(
+            weights_root.glob("*/weights/best.pt"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return str(candidates[0]) if candidates else ""
+
+    def _find_default_inference_image(self) -> str:
+        candidate_roots = [
+            Path(self.btl2_output_dir),
+            Path("outputs/btl2/showcase_finetune_dataset"),
+            Path("outputs/btl2/showcase_dataset"),
+            Path("outputs/btl2/unity_dataset"),
+            Path("outputs/btl2/demo_dataset"),
+        ]
+        seen: set[str] = set()
+        fallback_image = ""
+        for root in candidate_roots:
+            if not root:
+                continue
+            root_resolved = str(root)
+            if root_resolved in seen:
+                continue
+            seen.add(root_resolved)
+            image_paths = self._image_candidates(root / "images" / "train")
+            if not image_paths:
+                continue
+            if not fallback_image:
+                fallback_image = str(image_paths[0])
+            for image_path in image_paths:
+                if self._image_has_yolo_annotations(image_path):
+                    return str(image_path)
+        return fallback_image
+
+    def _find_current_output_image(self) -> str:
+        """Return the first RGB frame from the currently selected BTL2 output dir."""
+        output_root = Path(self.btl2_output_dir).expanduser()
+        if not output_root.is_absolute():
+            output_root = Path.cwd() / output_root
+
+        for split in ("train", "val"):
+            image_dir = output_root / "images" / split
+            preferred = image_dir / "frame_000001.png"
+            if preferred.exists():
+                return str(preferred)
+
+            image_paths = self._image_candidates(image_dir)
+            if image_paths:
+                return str(image_paths[0])
+
+        return ""
+
+    def _find_default_preview_image(self) -> str:
+        """Preview should follow the latest generated scene, not the fine-tune pool."""
+        return self._find_current_output_image() or self._find_default_inference_image()
+
+    def _preview_source_is_current_output(self) -> bool:
+        if not self.btl2_preview_source_image_path:
+            return False
+
+        try:
+            preview_path = Path(self.btl2_preview_source_image_path).expanduser()
+            output_root = Path(self.btl2_output_dir).expanduser()
+            if not preview_path.is_absolute():
+                preview_path = (Path.cwd() / preview_path).resolve()
+            else:
+                preview_path = preview_path.resolve()
+            if not output_root.is_absolute():
+                output_root = (Path.cwd() / output_root).resolve()
+            else:
+                output_root = output_root.resolve()
+            preview_path.relative_to(output_root)
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def _refresh_btl2_inference_defaults(self) -> None:
+        latest_weight = self._find_latest_yolo_weight()
+        if latest_weight and not self.btl2_detector_weight_path:
+            self.btl2_detector_weight_path = latest_weight
+
+        preview_image = self._find_default_preview_image()
+        if preview_image:
+            self.btl2_preview_source_image_path = preview_image
+            self.btl2_inference_image_path = preview_image
+        self.refresh_btl2_preview()
+
+    @staticmethod
+    def _resolve_btl2_mask_path(dataset_root: Path, split: str, stem: str) -> Optional[Path]:
+        mask_dir = dataset_root / "masks" / split
+        for candidate in (
+            mask_dir / f"{stem}_mask.png",
+            mask_dir / f"{stem}_layer.png",
+            mask_dir / f"{stem}.png",
+        ):
+            if candidate.exists():
+                return candidate
+        return None
+
+    @staticmethod
+    def _render_btl2_boxes_preview(image_path: Path, metadata_path: Path, output_path: Path) -> None:
+        import json
+        from PIL import Image, ImageDraw
+
+        image = Image.open(image_path).convert("RGB")
+        draw = ImageDraw.Draw(image)
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        boxes = metadata.get("bounding_boxes", [])
+        if not boxes and metadata.get("objects"):
+            boxes = [
+                {
+                    "bbox_xywh": obj.get("bbox_pixels"),
+                    "class_name": obj.get("class_name", "unknown"),
+                }
+                for obj in metadata.get("objects", [])
+                if obj.get("bbox_pixels")
+            ]
+
+        for bbox in boxes:
+            bbox_xywh = bbox.get("bbox_xywh")
+            if not bbox_xywh:
+                continue
+            x, y, w, h = bbox_xywh
+            draw.rectangle((x, y, x + w, y + h), outline=(255, 255, 0), width=2)
+            draw.text((x + 4, y + 4), bbox.get("class_name", "unknown"), fill=(255, 255, 0))
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output_path)
+
+    @staticmethod
+    def _render_btl2_depth_proxy(image_path: Path, output_path: Path) -> None:
+        """Create a lightweight depth preview for augmented datasets without real depth files."""
+        from PIL import Image, ImageDraw
+
+        image = Image.open(image_path).convert("RGB")
+        width, height = image.size
+        depth = Image.new("L", (width, height), 220)
+        draw = ImageDraw.Draw(depth)
+
+        # Background gradient: soft depth preview, not full black/white contrast.
+        for y in range(height):
+            value = int(235 - 45 * (y / max(height - 1, 1)))
+            draw.line((0, y, width, y), fill=value)
+
+        label_path = AppModel._yolo_label_for_image(image_path)
+        if label_path is not None and label_path.exists():
+            for raw_line in label_path.read_text(encoding="utf-8").splitlines():
+                parts = raw_line.strip().split()
+                if len(parts) != 5:
+                    continue
+                try:
+                    _, x_center, y_center, box_width, box_height = [float(part) for part in parts]
+                except ValueError:
+                    continue
+                x = (x_center - box_width * 0.5) * width
+                y = (y_center - box_height * 0.5) * height
+                w = box_width * width
+                h = box_height * height
+                # Larger/lower boxes are usually closer in this dashcam-style scene.
+                closeness = min(1.0, max(0.0, y_center + box_height * 0.45))
+                value = int(220 - 80 * closeness)
+                draw.rectangle((x, y, x + w, y + h), fill=value)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        depth.save(output_path)
+
+    @staticmethod
+    def _render_btl2_mask_preview(mask_path: Path, metadata_path: Path, output_path: Path) -> None:
+        """Render a human-readable color preview for low-valued instance masks."""
+        import json
+        from PIL import Image
+        from btl2.utils.colors import class_color
+
+        mask = Image.open(mask_path).convert("RGB")
+        mask_np = np.asarray(mask, dtype=np.uint8)
+        preview_np = np.zeros_like(mask_np)
+
+        mapping: dict[str, Any] = {}
+        if metadata_path.exists():
+            try:
+                payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+                mapping = payload.get("segmentation_mapping", {}) or {}
+            except (OSError, json.JSONDecodeError):
+                mapping = {}
+
+        fallback_palette = [
+            (70, 200, 120),
+            (220, 70, 70),
+            (255, 140, 70),
+            (160, 110, 80),
+            (70, 150, 240),
+            (90, 150, 255),
+            (255, 210, 60),
+        ]
+
+        flat_mask = mask_np.reshape(-1, 3)
+        flat_preview = preview_np.reshape(-1, 3)
+        unique_colors = np.unique(flat_mask, axis=0)
+        palette_idx = 0
+        for color in unique_colors:
+            if not np.any(color):
+                continue
+            key = f"{int(color[0])}_{int(color[1])}_{int(color[2])}"
+            class_name = mapping.get(key, {}).get("class_name")
+            if class_name:
+                draw_color = class_color(class_name)
+            else:
+                draw_color = fallback_palette[palette_idx % len(fallback_palette)]
+                palette_idx += 1
+            matches = np.all(flat_mask == color, axis=1)
+            flat_preview[matches] = np.asarray(draw_color, dtype=np.uint8)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(preview_np, mode="RGB").save(output_path)
+
+    def set_btl2_preview_mode(self, mode: str) -> None:
+        if mode not in {"rgb", "depth", "mask", "boxes"}:
+            return
+        if mode == self.btl2_preview_mode:
+            return
+        self.btl2_preview_mode = mode
+        self.refresh_btl2_preview()
+
+    def refresh_btl2_preview(self) -> None:
+        image_path = Path(self.btl2_preview_source_image_path).expanduser() if self.btl2_preview_source_image_path else None
+        current_output_image = self._find_current_output_image()
+        if current_output_image and not self._preview_source_is_current_output():
+            image_path = Path(current_output_image)
+        elif image_path is None or not str(image_path):
+            default_image = self._find_default_preview_image()
+            image_path = Path(default_image).expanduser() if default_image else None
+
+        if image_path is None:
+            self.btl2_preview_path = ""
+            self.btl2_preview_status = "Idle: chua tim thay frame mau de preview."
+            return
+
+        if not image_path.is_absolute():
+            image_path = Path.cwd() / image_path
+        if not image_path.exists():
+            self.btl2_preview_path = ""
+            self.btl2_preview_status = f"Missing preview source image: {image_path}"
+            return
+
+        self.btl2_preview_source_image_path = str(image_path)
+        try:
+            split = image_path.parent.name
+            dataset_root = image_path.parents[2]
+        except IndexError:
+            self.btl2_preview_path = ""
+            self.btl2_preview_status = f"Invalid preview image path: {image_path}"
+            return
+
+        stem = image_path.stem
+        preview_path: Optional[Path] = None
+        mode_label = self.btl2_preview_mode.upper()
+
+        if self.btl2_preview_mode == "rgb":
+            preview_path = image_path
+        elif self.btl2_preview_mode == "depth":
+            candidate = dataset_root / "depth" / split / f"{stem}_depth.png"
+            if candidate.exists():
+                preview_path = candidate
+            else:
+                candidate = dataset_root / "previews" / f"{stem}_depth_proxy.png"
+                if not candidate.exists() or candidate.stat().st_mtime < image_path.stat().st_mtime:
+                    self._render_btl2_depth_proxy(image_path, candidate)
+                preview_path = candidate
+        elif self.btl2_preview_mode == "mask":
+            mask_path = self._resolve_btl2_mask_path(dataset_root, split, stem)
+            metadata_path = dataset_root / "metadata" / split / f"{stem}.json"
+            if mask_path is not None:
+                candidate = dataset_root / "previews" / f"{stem}_mask_preview.png"
+                source_mtime = mask_path.stat().st_mtime
+                if metadata_path.exists():
+                    source_mtime = max(source_mtime, metadata_path.stat().st_mtime)
+                if not candidate.exists() or candidate.stat().st_mtime < source_mtime:
+                    self._render_btl2_mask_preview(mask_path, metadata_path, candidate)
+                preview_path = candidate
+        elif self.btl2_preview_mode == "boxes":
+            metadata_path = dataset_root / "metadata" / split / f"{stem}.json"
+            candidate = dataset_root / "previews" / f"{stem}_boxes.png"
+            if metadata_path.exists():
+                if not candidate.exists() or candidate.stat().st_mtime < max(image_path.stat().st_mtime, metadata_path.stat().st_mtime):
+                    self._render_btl2_boxes_preview(image_path, metadata_path, candidate)
+                preview_path = candidate
+
+        if preview_path is None or not preview_path.exists():
+            self.btl2_preview_path = ""
+            self.btl2_preview_status = f"Missing {mode_label} preview for {stem}."
+            return
+
+        self.btl2_preview_path = str(preview_path)
+        self.btl2_preview_status = f"Previewing {mode_label}: {preview_path.name}"
+
+    def load_btl2_detector(self) -> Dict[str, Any]:
+        from ultralytics import YOLO
+
+        weight_path = Path(self.btl2_detector_weight_path).expanduser()
+        if not weight_path.is_absolute():
+            weight_path = Path.cwd() / weight_path
+        if not weight_path.exists():
+            raise FileNotFoundError(f"Khong tim thay weight file: {weight_path}")
+
+        current_mtime = float(weight_path.stat().st_mtime)
+        needs_reload = (
+            self._btl2_detector is None
+            or self.btl2_detector_loaded_path != str(weight_path)
+            or abs(self.btl2_detector_loaded_mtime - current_mtime) > 1e-6
+        )
+
+        if needs_reload:
+            self._btl2_detector = YOLO(str(weight_path))
+            self.btl2_detector_loaded_path = str(weight_path)
+            self.btl2_detector_loaded_mtime = current_mtime
+
+        self.btl2_inference_status = f"Loaded detector: {weight_path.name} ({self.btl2_inference_device})"
+        return {
+            "weights": self.btl2_detector_loaded_path,
+            "device": self.btl2_inference_device,
+        }
+
+    def run_btl2_inference(self) -> Dict[str, Any]:
+        image_path = Path(self.btl2_inference_image_path).expanduser()
+        if not image_path.is_absolute():
+            image_path = Path.cwd() / image_path
+        if not image_path.exists():
+            raise FileNotFoundError(f"Khong tim thay anh de inference: {image_path}")
+
+        self.load_btl2_detector()
+        assert self._btl2_detector is not None
+
+        results = self._btl2_detector.predict(
+            source=str(image_path),
+            device=self.btl2_inference_device,
+            verbose=False,
+        )
+        if not results:
+            raise RuntimeError("YOLO khong tra ve ket qua nao.")
+
+        result = results[0]
+        output_dir = Path("outputs/inference/ui")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{image_path.stem}_pred.jpg"
+
+        if hasattr(result, "save"):
+            result.save(filename=str(output_path))
+        else:
+            plotted = result.plot()
+            if hasattr(plotted, "save"):
+                plotted.save(output_path)
+            else:
+                from PIL import Image
+
+                Image.fromarray(plotted).save(output_path)
+
+        class_names = getattr(result, "names", None) or getattr(self._btl2_detector, "names", {})
+        detections = 0
+        summary = "No detections."
+        boxes = getattr(result, "boxes", None)
+        if boxes is not None and getattr(boxes, "cls", None) is not None:
+            cls_ids = [int(v) for v in boxes.cls.tolist()]
+            detections = len(cls_ids)
+            if detections:
+                counts = Counter(class_names.get(idx, str(idx)) for idx in cls_ids)
+                summary = ", ".join(f"{name} x{count}" for name, count in sorted(counts.items()))
+            elif not self._image_has_yolo_annotations(image_path):
+                summary = "No detections. Selected image also has no YOLO labels; choose Use Sample Image again."
+
+        self.btl2_inference_preview_path = str(output_path)
+        self.btl2_inference_summary = summary
+        self.btl2_inference_last_result = {
+            "image": str(image_path),
+            "preview": str(output_path),
+            "weights": self.btl2_detector_loaded_path,
+            "detections": detections,
+            "summary": summary,
+            "device": self.btl2_inference_device,
+        }
+        self.btl2_inference_status = f"Done: inferred {image_path.name} with {detections} detection(s)."
+        return self.btl2_inference_last_result
 
     def _clear_scene_objects_for_btl2_preview(self) -> None:
         # Dọn scene hiện tại để preview procedural xuất hiện rõ ràng, không chồng dữ liệu cũ.
@@ -489,7 +940,13 @@ class AppModel:
 
     @staticmethod
     def _match_btl2_preview_scale(source_obj: Any, created_obj: Any) -> List[float]:
-        target_world_size = [float(v) for v in source_obj.scale.tolist()]
+        source_scale = np.asarray(source_obj.scale, dtype=np.float32)
+        source_aabb = getattr(source_obj, "aabb_local", None)
+        if source_aabb is not None:
+            source_extent = np.asarray(source_aabb.max_corner - source_aabb.min_corner, dtype=np.float32)
+            target_world_size = [float(v) for v in (source_extent * source_scale).tolist()]
+        else:
+            target_world_size = [float(v) for v in source_scale.tolist()]
         drawable = getattr(created_obj, "drawable", None)
         if drawable is None or not hasattr(drawable, "vertices"):
             return target_world_size
