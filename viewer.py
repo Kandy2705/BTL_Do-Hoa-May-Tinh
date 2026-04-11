@@ -645,10 +645,11 @@ class Viewer:
                         shininess_val = getattr(obj.drawable, 'shininess', 32.0)
                         gl.glUniform1f(loc_shininess, shininess_val)
                     
-                    # 4. Light Range (Attenuation + Cutoff)
+                    # 4. Light Range
+                    # Keep viewport lighting broad, closer to sunlight than a small point lamp.
                     loc_range = gl.glGetUniformLocation(shader_id, "u_light_range")
                     if loc_range != -1:
-                        gl.glUniform1f(loc_range, 50.0)      # ← Bạn có thể chỉnh số này
+                        gl.glUniform1f(loc_range, 220.0)
 
                 obj.drawable.draw(projection, view, None)
 

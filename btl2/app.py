@@ -319,14 +319,14 @@ class SyntheticRoadApp:
                 return DirectionalLight(
                     direction=direction,
                     color=color,
-                    intensity=float(getattr(obj, "light_intensity", 1.0)),
-                    ambient_strength=0.35,
+                    intensity=max(1.15, float(getattr(obj, "light_intensity", 1.0))),
+                    ambient_strength=0.52,
                 )
         return DirectionalLight(
             direction=np.array([0.4, -1.0, 0.2], dtype=np.float32) / np.linalg.norm(np.array([0.4, -1.0, 0.2], dtype=np.float32)),
             color=np.array([1.0, 1.0, 1.0], dtype=np.float32),
-            intensity=1.0,
-            ambient_strength=0.35,
+            intensity=1.15,
+            ambient_strength=0.52,
         )
 
     @staticmethod

@@ -55,7 +55,7 @@ vec3 compute_phong_lighting(vec3 surface_normal) {
     vec3 N = normalize(surface_normal);
     vec3 V = normalize(-vertPos);
 
-    vec3 ambient = vec3(0.3, 0.3, 0.3);
+    vec3 ambient = vec3(0.46, 0.46, 0.46);
     vec3 final_lighting = vec3(0.0, 0.0, 0.0);
 
     for (int i = 0; i < u_num_lights; i++) {
@@ -64,24 +64,25 @@ vec3 compute_phong_lighting(vec3 surface_normal) {
         vec4 lightPosView = view * vec4(u_light_pos[i], 1.0);
         vec3 L = normalize(lightPosView.xyz - vertPos);
 
-        // attenuation là công thức giảm cường độ theo khoảng cách.
-        // Nó mô phỏng thực tế là vật càng xa đèn thì nhận ánh sáng càng yếu.
+        // Soft attenuation: viewport should feel like broad daylight, not a tiny point lamp.
         float distance = length(lightPosView.xyz - vertPos);
-        float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);
-        attenuation *= clamp(1.0 - distance / u_light_range, 0.0, 1.0);
+        float lightRange = max(u_light_range, 1.0);
+        float rangeFalloff = clamp(1.0 - distance / lightRange, 0.0, 1.0);
+        float attenuation = mix(0.58, 1.0, rangeFalloff * rangeFalloff);
 
         vec3 R = reflect(-L, N);
 
         float diff = max(dot(N, L), 0.0);
-        vec3 diffuse = diff * u_light_color[i] * u_light_intensity[i] * attenuation;
+        float wrappedDiff = 0.28 + 0.72 * diff;
+        vec3 diffuse = wrappedDiff * u_light_color[i] * u_light_intensity[i] * attenuation;
 
         float spec = pow(max(dot(V, R), 0.0), u_shininess);
-        vec3 specular = 0.5 * spec * u_light_color[i] * u_light_intensity[i] * attenuation;
+        vec3 specular = 0.28 * spec * u_light_color[i] * u_light_intensity[i] * attenuation;
 
         final_lighting += diffuse + specular;
     }
 
-    return ambient + final_lighting;
+    return clamp(ambient + final_lighting, 0.0, 1.35);
 }
 
 void main() {
@@ -122,5 +123,5 @@ void main() {
         lighting = vec3(1.0, 1.0, 1.0);
     }
     
-    fragColor = vec4(lighting * baseColor.rgb, baseColor.a);
+    fragColor = vec4(clamp(lighting * baseColor.rgb, 0.0, 1.0), baseColor.a);
 }

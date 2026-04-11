@@ -59,8 +59,8 @@ scene:
       max_count: 1
       scale_range: [0.96, 1.04]
 lighting:
-  ambient_strength: 0.45
-  directional_intensity_range: [0.88, 1.12]
+  ambient_strength: 0.52
+  directional_intensity_range: [1.0, 1.2]
   directional_pitch_range: [-48.0, -30.0]
   directional_yaw_range: [-10.0, 20.0]
 annotations:
