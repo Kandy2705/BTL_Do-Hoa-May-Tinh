@@ -249,6 +249,24 @@ class BTL2Panel:
         if imgui.button("Browse Image"):
             actions["btl2_browse_image"] = True
 
+        changed_conf, new_conf = imgui.slider_float(
+            "Confidence",
+            float(getattr(model, "btl2_inference_conf", 0.25)),
+            0.05,
+            0.90,
+        )
+        if changed_conf:
+            model.btl2_inference_conf = new_conf
+
+        changed_imgsz, new_imgsz = imgui.input_int(
+            "Image size",
+            int(getattr(model, "btl2_inference_imgsz", 640)),
+            32,
+            128,
+        )
+        if changed_imgsz:
+            model.btl2_inference_imgsz = max(320, min(1280, int(new_imgsz)))
+
         if imgui.button("Load Detector"):
             actions["btl2_load_detector"] = True
         imgui.same_line()

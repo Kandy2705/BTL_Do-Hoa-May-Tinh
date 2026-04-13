@@ -2,8 +2,11 @@
 
 in vec3 v_world_pos;
 in vec3 v_normal;
+in vec2 v_texcoord;
 
 uniform vec3 u_base_color;
+uniform bool u_use_texture;
+uniform sampler2D u_texture;
 uniform vec3 u_camera_pos;
 uniform vec3 u_light_dir;
 uniform vec3 u_light_color;
@@ -22,10 +25,14 @@ void main() {
     float diffuse = max(dot(normal, light_dir), 0.0);
     float wrapped_diffuse = 0.42 + 0.58 * diffuse;
     float specular = pow(max(dot(view_dir, reflect_dir), 0.0), 24.0);
+    vec3 albedo = u_base_color;
+    if (u_use_texture) {
+        albedo = texture(u_texture, v_texcoord).rgb;
+    }
 
-    vec3 ambient_term = max(u_ambient_strength, 0.46) * u_base_color;
-    vec3 diffuse_term = wrapped_diffuse * u_light_intensity * u_light_color * u_base_color * 0.74;
-    vec3 specular_tint = mix(u_base_color, vec3(1.0), 0.18);
+    vec3 ambient_term = max(u_ambient_strength, 0.46) * albedo;
+    vec3 diffuse_term = wrapped_diffuse * u_light_intensity * u_light_color * albedo * 0.74;
+    vec3 specular_tint = mix(albedo, vec3(1.0), 0.18);
     vec3 specular_term = 0.035 * specular * specular_tint * u_light_color;
 
     vec3 color = clamp(ambient_term + diffuse_term + specular_term, 0.0, 1.0);

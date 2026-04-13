@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from OpenGL.GL import GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT, GL_DEPTH_TEST, glBindVertexArray, glClear, glClearColor, glEnable, glViewport
+from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
+    GL_TEXTURE0,
+    GL_TEXTURE_2D,
+    glActiveTexture,
+    glBindTexture,
+    glBindVertexArray,
+    glClear,
+    glClearColor,
+    glEnable,
+    glViewport,
+)
 
 from btl2.renderer.camera import CameraMatrices
 from btl2.renderer.material import Material
@@ -38,13 +51,22 @@ class RGBRenderPass:
         self.shader.set_vec3("u_light_color", scene.light.color)
         self.shader.set_float("u_light_intensity", scene.light.intensity)
         self.shader.set_float("u_ambient_strength", scene.light.ambient_strength)
+        self.shader.set_int("u_texture", 0)
 
         for obj in scene.objects:
             self._draw_object(obj, meshes[obj.mesh_key], materials[obj.instance_id])
         glBindVertexArray(0)
+        glBindTexture(GL_TEXTURE_2D, 0)
 
     def _draw_object(self, obj: SceneObject, mesh: GLMesh, material: Material) -> None:
         """Upload per-object uniforms and draw one mesh."""
         self.shader.set_mat4("u_model", obj.model_matrix)
         self.shader.set_vec3("u_base_color", material.base_color)
+        use_texture = mesh.texture_id is not None
+        self.shader.set_int("u_use_texture", 1 if use_texture else 0)
+        if use_texture:
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, mesh.texture_id)
+        else:
+            glBindTexture(GL_TEXTURE_2D, 0)
         mesh.draw()

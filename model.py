@@ -23,6 +23,8 @@ def _default_shader_paths() -> ShaderPaths:
 from libs.transform import Trackball, quaternion_from_axis_angle, quaternion_slerp
 from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
+    PREFERRED_YOLO_WEIGHT = Path("outputs/training/yolo/unity_2400_yolov8s_640/weights/best.pt")
+
     SGD_PRESETS: Dict[str, Dict[str, Any]] = {
         "Stable Classroom": {
             "learning_rate": 0.003,
@@ -161,6 +163,8 @@ class AppModel:
         self.btl2_inference_status: str = "Idle: chua load detector."
         self.btl2_inference_summary: str = ""
         self.btl2_inference_device: str = self._detect_btl2_inference_device()
+        self.btl2_inference_conf: float = 0.25
+        self.btl2_inference_imgsz: int = 640
         self.btl2_inference_last_result: Dict[str, Any] = {}
         self._btl2_detector: Optional[Any] = None
         self.refresh_btl2_preview()
@@ -492,6 +496,65 @@ class AppModel:
                 return candidate
         return None
 
+    @staticmethod
+    def _class_names_for_dataset(dataset_root: Path) -> Dict[int, str]:
+        """Read class names from dataset.yaml for GT preview labels."""
+        dataset_yaml = dataset_root / "dataset.yaml"
+        if not dataset_yaml.exists():
+            return {}
+        try:
+            import yaml
+
+            payload = yaml.safe_load(dataset_yaml.read_text(encoding="utf-8")) or {}
+            names = payload.get("names", {})
+            if isinstance(names, dict):
+                return {int(key): str(value) for key, value in names.items()}
+            if isinstance(names, list):
+                return {idx: str(value) for idx, value in enumerate(names)}
+        except Exception:
+            pass
+        return {}
+
+    @classmethod
+    def _boxes_from_yolo_label(cls, image_path: Path) -> List[Dict[str, Any]]:
+        """Convert normalized YOLO labels into pixel-space boxes for GT preview."""
+        label_path = cls._yolo_label_for_image(image_path)
+        if label_path is None or not label_path.exists():
+            return []
+
+        try:
+            from PIL import Image
+
+            width, height = Image.open(image_path).size
+            dataset_root = image_path.parents[2]
+        except Exception:
+            return []
+
+        class_names = cls._class_names_for_dataset(dataset_root)
+        boxes: List[Dict[str, Any]] = []
+        for line in label_path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            try:
+                class_id = int(float(parts[0]))
+                x_center = float(parts[1]) * width
+                y_center = float(parts[2]) * height
+                box_w = float(parts[3]) * width
+                box_h = float(parts[4]) * height
+            except ValueError:
+                continue
+
+            x = x_center - box_w * 0.5
+            y = y_center - box_h * 0.5
+            boxes.append(
+                {
+                    "bbox_xywh": [x, y, box_w, box_h],
+                    "class_name": class_names.get(class_id, str(class_id)),
+                }
+            )
+        return boxes
+
     @classmethod
     def _image_has_yolo_annotations(cls, image_path: Path) -> bool:
         label_path = cls._yolo_label_for_image(image_path)
@@ -503,6 +566,9 @@ class AppModel:
             return False
 
     def _find_latest_yolo_weight(self) -> str:
+        if self.PREFERRED_YOLO_WEIGHT.exists():
+            return str(self.PREFERRED_YOLO_WEIGHT)
+
         weights_root = Path("outputs/training/yolo")
         if not weights_root.exists():
             return ""
@@ -607,23 +673,26 @@ class AppModel:
         return None
 
     @staticmethod
-    def _render_btl2_boxes_preview(image_path: Path, metadata_path: Path, output_path: Path) -> None:
+    def _render_btl2_boxes_preview(image_path: Path, metadata_path: Optional[Path], output_path: Path) -> None:
         import json
         from PIL import Image, ImageDraw
 
         image = Image.open(image_path).convert("RGB")
         draw = ImageDraw.Draw(image)
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        boxes = metadata.get("bounding_boxes", [])
-        if not boxes and metadata.get("objects"):
-            boxes = [
-                {
-                    "bbox_xywh": obj.get("bbox_pixels"),
-                    "class_name": obj.get("class_name", "unknown"),
-                }
-                for obj in metadata.get("objects", [])
-                if obj.get("bbox_pixels")
-            ]
+        boxes = AppModel._boxes_from_yolo_label(image_path)
+
+        if not boxes and metadata_path is not None and metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            boxes = metadata.get("bounding_boxes", [])
+            if not boxes and metadata.get("objects"):
+                boxes = [
+                    {
+                        "bbox_xywh": obj.get("bbox_pixels"),
+                        "class_name": obj.get("class_name", "unknown"),
+                    }
+                    for obj in metadata.get("objects", [])
+                    if obj.get("bbox_pixels")
+                ]
 
         for bbox in boxes:
             bbox_xywh = bbox.get("bbox_xywh")
@@ -788,9 +857,15 @@ class AppModel:
                 preview_path = candidate
         elif self.btl2_preview_mode == "boxes":
             metadata_path = dataset_root / "metadata" / split / f"{stem}.json"
+            label_path = self._yolo_label_for_image(image_path)
             candidate = dataset_root / "previews" / f"{stem}_boxes.png"
-            if metadata_path.exists():
-                if not candidate.exists() or candidate.stat().st_mtime < max(image_path.stat().st_mtime, metadata_path.stat().st_mtime):
+            if label_path is not None or metadata_path.exists():
+                source_mtime = image_path.stat().st_mtime
+                if label_path is not None and label_path.exists():
+                    source_mtime = max(source_mtime, label_path.stat().st_mtime)
+                if metadata_path.exists():
+                    source_mtime = max(source_mtime, metadata_path.stat().st_mtime)
+                if not candidate.exists() or candidate.stat().st_mtime < source_mtime:
                     self._render_btl2_boxes_preview(image_path, metadata_path, candidate)
                 preview_path = candidate
 
@@ -841,6 +916,8 @@ class AppModel:
 
         results = self._btl2_detector.predict(
             source=str(image_path),
+            conf=float(self.btl2_inference_conf),
+            imgsz=int(self.btl2_inference_imgsz),
             device=self.btl2_inference_device,
             verbose=False,
         )
@@ -885,6 +962,8 @@ class AppModel:
             "detections": detections,
             "summary": summary,
             "device": self.btl2_inference_device,
+            "conf": float(self.btl2_inference_conf),
+            "imgsz": int(self.btl2_inference_imgsz),
         }
         self.btl2_inference_status = f"Done: inferred {image_path.name} with {detections} detection(s)."
         return self.btl2_inference_last_result

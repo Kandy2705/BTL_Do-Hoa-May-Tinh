@@ -341,6 +341,9 @@ class SyntheticRoadApp:
         normals = np.asarray(getattr(drawable, "normals", np.tile([[0.0, 1.0, 0.0]], (len(vertices), 1))), dtype=np.float32)
         if normals.shape != vertices.shape:
             normals = np.tile(np.array([[0.0, 1.0, 0.0]], dtype=np.float32), (len(vertices), 1))
+        texcoords = np.asarray(getattr(drawable, "texcoords", np.zeros((len(vertices), 2))), dtype=np.float32)
+        if texcoords.shape != (len(vertices), 2):
+            texcoords = np.zeros((len(vertices), 2), dtype=np.float32)
 
         if hasattr(drawable, "indices") and getattr(drawable, "indices") is not None and len(drawable.indices) >= 3:
             indices = np.asarray(drawable.indices, dtype=np.uint32).reshape(-1)
@@ -351,6 +354,18 @@ class SyntheticRoadApp:
             indices = np.arange(usable, dtype=np.uint32)
             vertices = vertices[:usable]
             normals = normals[:usable]
+            texcoords = texcoords[:usable]
+
+        texture_path = None
+        material_texture_path = getattr(drawable, "material_texture_path", None)
+        if material_texture_path:
+            texture_path = Path(material_texture_path)
+        elif getattr(drawable, "material_texture_paths", None):
+            first_texture = next(iter(drawable.material_texture_paths.values()), None)
+            if first_texture:
+                texture_path = Path(first_texture)
+        if texture_path is not None and not texture_path.exists():
+            texture_path = None
 
         from btl2.utils.math3d import AABB
 
@@ -359,6 +374,8 @@ class SyntheticRoadApp:
             normals=normals,
             indices=indices,
             aabb=AABB(vertices.min(axis=0), vertices.max(axis=0)),
+            texcoords=texcoords,
+            texture_path=texture_path,
         )
 
     @staticmethod

@@ -18,6 +18,8 @@ class MeshData:
     normals: np.ndarray
     indices: np.ndarray
     aabb: AABB
+    texcoords: np.ndarray | None = None
+    texture_path: Path | None = None
 
 
 class ObjectLoader:
@@ -53,13 +55,18 @@ class ObjectLoader:
         return mesh
 
     def _load_obj(self, path: Path) -> MeshData:
-        """Load a minimal subset of OBJ: v, vn, and triangular or quad faces."""
+        """Load a minimal subset of OBJ: v, vt, vn, mtllib/usemtl, and faces."""
         positions: list[list[float]] = []
+        texcoords: list[list[float]] = []
         normals: list[list[float]] = []
         vertices_out: list[list[float]] = []
+        texcoords_out: list[list[float]] = []
         normals_out: list[list[float]] = []
         indices_out: list[int] = []
-        vertex_map: dict[tuple[int, int], int] = {}
+        vertex_map: dict[tuple[int, int | None, int | None], int] = {}
+        materials: dict[str, Path] = {}
+        current_material: str | None = None
+        texture_path: Path | None = None
 
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
             for raw_line in handle:
@@ -70,24 +77,97 @@ class ObjectLoader:
                 head = parts[0]
                 if head == "v":
                     positions.append([float(v) for v in parts[1:4]])
+                elif head == "vt":
+                    u = float(parts[1]) if len(parts) > 1 else 0.0
+                    v = float(parts[2]) if len(parts) > 2 else 0.0
+                    texcoords.append([u, v])
                 elif head == "vn":
                     normals.append([float(v) for v in parts[1:4]])
+                elif head == "mtllib":
+                    mtl_name = " ".join(parts[1:])
+                    mtl_path = Path(mtl_name) if Path(mtl_name).is_absolute() else path.parent / mtl_name
+                    materials.update(self._load_mtl_textures(mtl_path))
+                elif head == "usemtl":
+                    current_material = " ".join(parts[1:]) if len(parts) > 1 else None
+                    if texture_path is None and current_material in materials:
+                        texture_path = materials[current_material]
                 elif head == "f":
-                    face_indices = [self._parse_obj_corner(token, len(positions), len(normals)) for token in parts[1:]]
+                    face_indices = [
+                        self._parse_obj_corner(token, len(positions), len(texcoords), len(normals))
+                        for token in parts[1:]
+                    ]
                     triangles = self._triangulate_polygon(face_indices)
                     for tri in triangles:
-                        for pos_idx, norm_idx in tri:
-                            cache_key = (pos_idx, norm_idx)
+                        for pos_idx, tex_idx, norm_idx in tri:
+                            cache_key = (pos_idx, tex_idx, norm_idx)
                             if cache_key not in vertex_map:
                                 vertex_map[cache_key] = len(vertices_out)
                                 vertices_out.append(positions[pos_idx])
+                                if tex_idx is not None and texcoords:
+                                    texcoords_out.append(texcoords[tex_idx])
+                                else:
+                                    texcoords_out.append([0.0, 0.0])
                                 if norm_idx is not None and normals:
                                     normals_out.append(normals[norm_idx])
                                 else:
                                     normals_out.append([0.0, 1.0, 0.0])
                             indices_out.append(vertex_map[cache_key])
 
-        return self._finalize_mesh(vertices_out, normals_out, indices_out, source_path=path)
+        if texture_path is None:
+            texture_path = self._guess_folder_texture_path(path.parent)
+
+        return self._finalize_mesh(vertices_out, normals_out, indices_out, texcoords_out, source_path=path, texture_path=texture_path)
+
+    @staticmethod
+    def _load_mtl_textures(path: Path) -> dict[str, Path]:
+        """Read diffuse texture references from an MTL file."""
+        textures: dict[str, Path] = {}
+        if not path.exists():
+            return textures
+
+        current_material: str | None = None
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                key = parts[0].lower()
+                if key == "newmtl" and len(parts) > 1:
+                    current_material = " ".join(parts[1:])
+                elif key == "map_kd" and current_material and len(parts) > 1:
+                    texture_name = " ".join(parts[1:])
+                    texture_path = Path(texture_name)
+                    if not texture_path.is_absolute():
+                        texture_path = path.parent / texture_path
+                    if texture_path.exists():
+                        textures[current_material] = texture_path.resolve()
+        return textures
+
+    @staticmethod
+    def _guess_folder_texture_path(folder: Path) -> Path | None:
+        """Pick a likely diffuse/base-color texture from the OBJ folder."""
+        if not folder.exists():
+            return None
+
+        image_paths: list[Path] = []
+        for pattern in ("*.png", "*.jpg", "*.jpeg", "*.tga", "*.bmp"):
+            image_paths.extend(sorted(folder.glob(pattern)))
+        if not image_paths:
+            return None
+
+        bad_tokens = ("normal", "rough", "metal", "ao", "opacity", "alpha", "wire", "clay")
+        preferred_tokens = ("basecolor", "base_color", "diffuse", "albedo", "color")
+
+        def score(path: Path) -> tuple[int, str]:
+            stem = path.stem.lower()
+            if any(token in stem for token in bad_tokens):
+                return (2, stem)
+            if any(token in stem for token in preferred_tokens):
+                return (0, stem)
+            return (1, stem)
+
+        return sorted(image_paths, key=score)[0].resolve()
 
     def _load_ply_ascii(self, path: Path) -> MeshData:
         """Load a minimal ASCII PLY with vertex positions and face lists."""
@@ -126,19 +206,23 @@ class ObjectLoader:
         return self._finalize_mesh(positions.tolist(), normals.tolist(), indices, source_path=path)
 
     @staticmethod
-    def _parse_obj_corner(token: str, num_positions: int, num_normals: int) -> tuple[int, int | None]:
+    def _parse_obj_corner(token: str, num_positions: int, num_texcoords: int, num_normals: int) -> tuple[int, int | None, int | None]:
         """Convert OBJ face corner syntax into zero-based indices."""
         values = token.split("/")
         pos_idx = int(values[0])
         pos_idx = pos_idx - 1 if pos_idx > 0 else num_positions + pos_idx
+        tex_idx = None
+        if len(values) >= 2 and values[1]:
+            parsed = int(values[1])
+            tex_idx = parsed - 1 if parsed > 0 else num_texcoords + parsed
         norm_idx = None
         if len(values) >= 3 and values[2]:
             parsed = int(values[2])
             norm_idx = parsed - 1 if parsed > 0 else num_normals + parsed
-        return pos_idx, norm_idx
+        return pos_idx, tex_idx, norm_idx
 
     @staticmethod
-    def _triangulate_polygon(face_indices: list[tuple[int, int | None]]) -> list[list[tuple[int, int | None]]]:
+    def _triangulate_polygon(face_indices: list[tuple[int, int | None, int | None]]) -> list[list[tuple[int, int | None, int | None]]]:
         """Triangulate an OBJ face using a fan around the first vertex."""
         if len(face_indices) < 3:
             return []
@@ -165,8 +249,17 @@ class ObjectLoader:
                 dtype=np.float32,
             )
             normals = np.tile(np.array([[0.0, 1.0, 0.0]], dtype=np.float32), (4, 1))
+            texcoords = np.array(
+                [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [1.0, 1.0],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
             indices = np.array([0, 1, 2, 0, 2, 3], dtype=np.uint32)
-            return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)))
+            return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)), texcoords=texcoords)
 
         if primitive_name == "cylinder":
             return self._build_cylinder()
@@ -213,7 +306,8 @@ class ObjectLoader:
             ],
             dtype=np.uint32,
         )
-        return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)))
+        texcoords = np.zeros((vertices.shape[0], 2), dtype=np.float32)
+        return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)), texcoords=texcoords)
 
     def _build_cylinder(self, segments: int = 16) -> MeshData:
         """Create a simple vertical cylinder placeholder for person-class objects."""
@@ -237,14 +331,17 @@ class ObjectLoader:
         vertices_np = np.asarray(vertices, dtype=np.float32)
         normals_np = np.asarray(normals, dtype=np.float32)
         indices_np = np.asarray(indices, dtype=np.uint32)
-        return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)))
+        texcoords_np = np.zeros((vertices_np.shape[0], 2), dtype=np.float32)
+        return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)), texcoords=texcoords_np)
 
     @staticmethod
     def _finalize_mesh(
         vertices: list[list[float]],
         normals: list[list[float]],
         indices: list[int],
+        texcoords: list[list[float]] | None = None,
         source_path: Path | None = None,
+        texture_path: Path | None = None,
     ) -> MeshData:
         """Convert parsed mesh lists to NumPy arrays and build the AABB."""
         if not vertices or not indices:
@@ -253,9 +350,19 @@ class ObjectLoader:
         vertices_np = np.asarray(vertices, dtype=np.float32)
         normals_np = np.asarray(normals, dtype=np.float32)
         indices_np = np.asarray(indices, dtype=np.uint32)
+        texcoords_np = np.asarray(texcoords, dtype=np.float32) if texcoords else np.zeros((vertices_np.shape[0], 2), dtype=np.float32)
+        if texcoords_np.shape != (vertices_np.shape[0], 2):
+            texcoords_np = np.zeros((vertices_np.shape[0], 2), dtype=np.float32)
         vertices_np, normals_np = ObjectLoader._apply_source_orientation(vertices_np, normals_np, source_path)
         vertices_np = ObjectLoader._normalize_loaded_vertices(vertices_np)
-        return MeshData(vertices_np, normals_np, indices_np, AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)))
+        return MeshData(
+            vertices_np,
+            normals_np,
+            indices_np,
+            AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)),
+            texcoords=texcoords_np,
+            texture_path=texture_path,
+        )
 
     @staticmethod
     def _apply_source_orientation(
