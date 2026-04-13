@@ -257,6 +257,14 @@ class AppController:
         
         if 'browse_model_file' in actions:
             self._browse_model_file()
+
+        if 'add_default_model' in actions:
+            try:
+                created = self.model.add_default_model_object(actions['add_default_model'])
+                self.view.center_scene_view(self.model.scene.objects)
+                print(f"Đã thêm model mặc định: {created.name}")
+            except Exception as exc:
+                print(f"Lỗi thêm model mặc định: {exc}")
         
         if 'color_changed' in actions:
             self.model.set_color(actions['color_changed'])

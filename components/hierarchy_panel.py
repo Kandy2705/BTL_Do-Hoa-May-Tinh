@@ -57,6 +57,11 @@ class HierarchyPanel:
                         model.add_hierarchy_object(obj_name, "custom_model")
                         model.select_hierarchy_object(len(model.hierarchy_objects) - 1)
                     imgui.end_menu()
+                if imgui.begin_menu("Add Default Model"):
+                    for key, spec in model.default_model_options().items():
+                        if imgui.menu_item(spec["label"])[0]:
+                            actions["add_default_model"] = key
+                    imgui.end_menu()
                 if imgui.begin_menu("Add Light"):
                     if imgui.menu_item("Light")[0]: 
                         actions['add_light'] = True

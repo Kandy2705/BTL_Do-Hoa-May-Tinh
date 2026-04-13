@@ -24,6 +24,80 @@ from libs.transform import Trackball, quaternion_from_axis_angle, quaternion_sle
 from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
     PREFERRED_YOLO_WEIGHT = Path("outputs/training/yolo/unity_2400_yolov8s_640/weights/best.pt")
+    DEFAULT_MODEL_ASSETS: Dict[str, Dict[str, Any]] = {
+        "road": {
+            "label": "Road",
+            "name": "road",
+            "path": "assets/models/road_props/old road.obj",
+            "position": [0.0, -0.03, 12.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "scale": [14.0, 1.0, 34.0],
+        },
+        "city": {
+            "label": "City / Intersection",
+            "name": "city",
+            "path": "assets/models/City/basic_4_way_los_angeles_intersection.obj",
+            "position": [0.0, 8.9, 14.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "scale": [30.0, 30.0, 30.0],
+        },
+        "person": {
+            "label": "Person",
+            "name": "person",
+            "path": "assets/models/Person/rp_mei_posed_001_30k.obj",
+            "position": [-3.0, 0.9, 7.0],
+            "rotation": [0.0, 165.0, 0.0],
+            "scale": [1.8, 1.8, 1.8],
+        },
+        "car": {
+            "label": "Car / Taxi",
+            "name": "car",
+            "path": "assets/models/Car/1399 Taxi.obj",
+            "position": [0.0, 0.55, 8.0],
+            "rotation": [0.0, 180.0, 0.0],
+            "scale": [4.6, 4.6, 4.6],
+        },
+        "bus": {
+            "label": "Bus",
+            "name": "bus",
+            "path": "assets/models/Bus/uploads_files_2263056_bus_byjoao3DModels.obj",
+            "position": [-3.2, 0.9, 16.0],
+            "rotation": [0.0, 180.0, 0.0],
+            "scale": [9.8, 9.8, 9.8],
+        },
+        "truck": {
+            "label": "Truck",
+            "name": "truck",
+            "path": "assets/models/Truck/Truck.obj",
+            "position": [3.2, 0.85, 14.0],
+            "rotation": [0.0, 180.0, 0.0],
+            "scale": [6.2, 6.2, 6.2],
+        },
+        "motorbike": {
+            "label": "Motorbike",
+            "name": "motorbike",
+            "path": "assets/models/Motorbike/uploads_files_2283946_mot.obj",
+            "position": [0.0, 0.45, 4.5],
+            "rotation": [0.0, 180.0, 0.0],
+            "scale": [2.4, 2.4, 2.4],
+        },
+        "traffic_light": {
+            "label": "Traffic Light",
+            "name": "traffic_light",
+            "path": "assets/models/Traffic_light/10567_StopLight_v1-L3.obj",
+            "position": [4.5, 2.4, 6.5],
+            "rotation": [0.0, -90.0, 0.0],
+            "scale": [2.8, 2.8, 2.8],
+        },
+        "traffic_sign": {
+            "label": "Traffic Sign",
+            "name": "traffic_sign",
+            "path": "assets/models/Traffic_sign/RoadSignOBJ.obj",
+            "position": [-4.5, 1.5, 5.5],
+            "rotation": [0.0, 90.0, 0.0],
+            "scale": [1.7, 1.7, 1.7],
+        },
+    }
 
     SGD_PRESETS: Dict[str, Dict[str, Any]] = {
         "Stable Classroom": {
@@ -1293,7 +1367,7 @@ class AppModel:
         obj_type: str,
         shape_name: str = "Cube",
         model_filename: str = "",
-    ) -> None:
+    ):
         from core.GameObject import GameObject, GameObjectOBJ, GameObjectLight, GameObjectCamera, GameObjectMath
         
         # 1. Tạo đúng loại GameObject theo nhu cầu của người dùng.
@@ -1446,6 +1520,34 @@ class AppModel:
         if obj_type == "custom_model":
             hierarchy_obj["model_data"] = {"filename": getattr(new_obj, "obj_ply_file", "")}
         self.hierarchy_objects.append(hierarchy_obj)
+        return new_obj
+
+    @classmethod
+    def default_model_options(cls) -> Dict[str, Dict[str, Any]]:
+        """Return bundled road-scene OBJ assets shown in the hierarchy menu."""
+        return cls.DEFAULT_MODEL_ASSETS
+
+    def add_default_model_object(self, key: str):
+        """Add one bundled OBJ with a sensible road-scene transform."""
+        spec = self.DEFAULT_MODEL_ASSETS.get(key)
+        if spec is None:
+            raise KeyError(f"Unknown default model: {key}")
+
+        model_path = Path(spec["path"])
+        if not model_path.is_absolute():
+            model_path = Path.cwd() / model_path
+        if not model_path.exists():
+            raise FileNotFoundError(f"Khong tim thay model mac dinh: {model_path}")
+
+        existing_count = sum(1 for obj in self.scene.objects if obj.name.startswith(spec["name"]))
+        name = spec["name"] if existing_count == 0 else f"{spec['name']}_{existing_count + 1:03d}"
+        new_obj = self.add_hierarchy_object(name, "custom_model", model_filename=str(model_path))
+        new_obj.position = list(spec["position"])
+        new_obj.rotation = list(spec["rotation"])
+        new_obj.scale = list(spec["scale"])
+        self._sync_scene_object_visuals(new_obj)
+        self.select_hierarchy_object(len(self.hierarchy_objects) - 1)
+        return new_obj
     
     def select_hierarchy_object(self, idx: int) -> None:
         if 0 <= idx < len(self.hierarchy_objects):

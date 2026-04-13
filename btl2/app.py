@@ -382,7 +382,7 @@ class SyntheticRoadApp:
     def _infer_class_name(name: str) -> str | None:
         """Infer one of the BTL2 training classes from an object name."""
         lowered = name.lower()
-        if any(token in lowered for token in ("road", "street", "lane", "ground", "floor", "terrain")):
+        if any(token in lowered for token in ("road", "street", "lane", "ground", "floor", "terrain", "city", "intersection", "building")):
             return "road"
         if any(token in lowered for token in ("ped", "human", "person", "walker")):
             return "person"
