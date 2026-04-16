@@ -24,14 +24,30 @@ from libs.transform import Trackball, quaternion_from_axis_angle, quaternion_sle
 from libs.loss_functions import LOSS_FUNCTIONS
 class AppModel:
     PREFERRED_YOLO_WEIGHT = Path("outputs/training/yolo/unity_2400_yolov8s_640/weights/best.pt")
+    PRETRAINED_YOLO_WEIGHT = Path("outputs/training/yolo/pretrained/yolov8s.pt")
+    PRETRAINED_YOLO_VARIANTS: Dict[str, Path] = {
+        "yolov8s": Path("outputs/training/yolo/pretrained/yolov8s.pt"),
+        "yolov8m": Path("outputs/training/yolo/pretrained/yolov8m.pt"),
+        "yolov8x": Path("outputs/training/yolo/pretrained/yolov8x.pt"),
+        "yolo26s": Path("outputs/training/yolo/pretrained/yolo26s.pt"),
+    }
     DEFAULT_MODEL_ASSETS: Dict[str, Dict[str, Any]] = {
         "road": {
             "label": "Road",
             "name": "road",
             "path": "assets/models/road_props/old road.obj",
-            "position": [0.0, -0.03, 12.0],
-            "rotation": [0.0, 0.0, 0.0],
-            "scale": [14.0, 1.0, 34.0],
+            "instances": [
+                {
+                    "position": [0.0, -0.03, 3.5],
+                    "rotation": [0.0, 0.0, 0.0],
+                    "scale": [14.0, 1.0, 17.0],
+                },
+                {
+                    "position": [0.0, -0.03, 20.5],
+                    "rotation": [0.0, 0.0, 0.0],
+                    "scale": [14.0, 1.0, 17.0],
+                },
+            ],
         },
         "city": {
             "label": "City / Intersection",
@@ -226,6 +242,7 @@ class AppModel:
         self.btl2_scene_renderable_count: int = 0
         self.btl2_preview_camera_state: Dict[str, Any] = {}
         self.btl2_detector_weight_path: str = self._find_latest_yolo_weight()
+        self.btl2_detector_weight_preset: str = self._infer_btl2_weight_preset(self.btl2_detector_weight_path)
         self.btl2_detector_loaded_path: str = ""
         self.btl2_detector_loaded_mtime: float = 0.0
         self.btl2_preview_mode: str = "rgb"
@@ -654,6 +671,79 @@ class AppModel:
         )
         return str(candidates[0]) if candidates else ""
 
+    def _find_pretrained_yolo_weight(self, variant: str = "yolov8s") -> str:
+        variant = str(variant).strip().lower()
+        candidate = self.PRETRAINED_YOLO_VARIANTS.get(variant)
+        if candidate and candidate.exists():
+            return str(candidate)
+
+        fallback_candidates = {
+            "yolov8s": [Path("yolov8s.pt"), Path("yolov8n.pt")],
+            "yolov8m": [Path("yolov8m.pt")],
+            "yolov8x": [Path("yolov8x.pt")],
+            "yolo26s": [Path("yolo26s.pt"), Path("yolo26n.pt")],
+        }.get(variant, [])
+        for fallback in fallback_candidates:
+            if fallback.exists():
+                return str(fallback)
+        return ""
+
+    def _infer_btl2_weight_preset(self, weight_path: str) -> str:
+        try:
+            resolved = Path(weight_path).expanduser()
+            if not resolved.is_absolute():
+                resolved = (Path.cwd() / resolved).resolve()
+            else:
+                resolved = resolved.resolve()
+        except Exception:
+            return "custom"
+
+        latest = self._find_latest_yolo_weight()
+        preset_paths = [
+            ("yolov8s", self._find_pretrained_yolo_weight("yolov8s")),
+            ("yolov8m", self._find_pretrained_yolo_weight("yolov8m")),
+            ("yolov8x", self._find_pretrained_yolo_weight("yolov8x")),
+            ("yolo26s", self._find_pretrained_yolo_weight("yolo26s")),
+            ("fine_tuned", latest),
+        ]
+        for preset_name, preset_path in preset_paths:
+            if not preset_path:
+                continue
+            try:
+                preset_resolved = Path(preset_path).expanduser()
+                if not preset_resolved.is_absolute():
+                    preset_resolved = (Path.cwd() / preset_resolved).resolve()
+                else:
+                    preset_resolved = preset_resolved.resolve()
+                if preset_resolved == resolved:
+                    return preset_name
+            except Exception:
+                continue
+        return "custom"
+
+    def set_btl2_detector_weight_preset(self, preset: str) -> str:
+        preset = str(preset).strip().lower()
+        if preset in {"pretrained", "yolov8s", "yolov8m", "yolov8x", "yolo26s"}:
+            variant = "yolov8s" if preset == "pretrained" else preset
+            weight_path = self._find_pretrained_yolo_weight(variant)
+            if not weight_path:
+                raise FileNotFoundError(f"Khong tim thay pretrained weight {variant}.pt trong repo.")
+            self.btl2_detector_weight_path = weight_path
+            self.btl2_detector_weight_preset = variant
+            self.btl2_inference_status = f"Selected preset: {variant} ({Path(weight_path).name})"
+            return weight_path
+
+        if preset in {"fine_tuned", "finetuned"}:
+            weight_path = self._find_latest_yolo_weight()
+            if not weight_path:
+                raise FileNotFoundError("Khong tim thay fine-tuned best.pt trong outputs/training/yolo.")
+            self.btl2_detector_weight_path = weight_path
+            self.btl2_detector_weight_preset = "fine_tuned"
+            self.btl2_inference_status = f"Selected preset: Fine-tuned ({Path(weight_path).name})"
+            return weight_path
+
+        raise ValueError(f"Preset khong hop le: {preset}")
+
     def _find_default_inference_image(self) -> str:
         candidate_roots = [
             Path(self.btl2_output_dir),
@@ -959,6 +1049,7 @@ class AppModel:
             weight_path = Path.cwd() / weight_path
         if not weight_path.exists():
             raise FileNotFoundError(f"Khong tim thay weight file: {weight_path}")
+        self.btl2_detector_weight_preset = self._infer_btl2_weight_preset(str(weight_path))
 
         current_mtime = float(weight_path.stat().st_mtime)
         needs_reload = (
@@ -1540,14 +1631,27 @@ class AppModel:
             raise FileNotFoundError(f"Khong tim thay model mac dinh: {model_path}")
 
         existing_count = sum(1 for obj in self.scene.objects if obj.name.startswith(spec["name"]))
-        name = spec["name"] if existing_count == 0 else f"{spec['name']}_{existing_count + 1:03d}"
-        new_obj = self.add_hierarchy_object(name, "custom_model", model_filename=str(model_path))
-        new_obj.position = list(spec["position"])
-        new_obj.rotation = list(spec["rotation"])
-        new_obj.scale = list(spec["scale"])
-        self._sync_scene_object_visuals(new_obj)
+        instances = spec.get("instances")
+        created_objects = []
+        if instances:
+            for idx, transform in enumerate(instances):
+                name = f"{spec['name']}_{existing_count + idx + 1:03d}"
+                new_obj = self.add_hierarchy_object(name, "custom_model", model_filename=str(model_path))
+                new_obj.position = list(transform["position"])
+                new_obj.rotation = list(transform["rotation"])
+                new_obj.scale = list(transform["scale"])
+                self._sync_scene_object_visuals(new_obj)
+                created_objects.append(new_obj)
+        else:
+            name = spec["name"] if existing_count == 0 else f"{spec['name']}_{existing_count + 1:03d}"
+            new_obj = self.add_hierarchy_object(name, "custom_model", model_filename=str(model_path))
+            new_obj.position = list(spec["position"])
+            new_obj.rotation = list(spec["rotation"])
+            new_obj.scale = list(spec["scale"])
+            self._sync_scene_object_visuals(new_obj)
+            created_objects.append(new_obj)
         self.select_hierarchy_object(len(self.hierarchy_objects) - 1)
-        return new_obj
+        return created_objects[-1]
     
     def select_hierarchy_object(self, idx: int) -> None:
         if 0 <= idx < len(self.hierarchy_objects):

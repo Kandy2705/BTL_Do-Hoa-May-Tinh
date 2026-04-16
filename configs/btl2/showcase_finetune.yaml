@@ -67,3 +67,4 @@ annotations:
   min_bbox_pixels: 4
   visibility_threshold: 0.0005
   segmentation_alpha_preview: 0.45
+  coco_segmentation_mode: polygon

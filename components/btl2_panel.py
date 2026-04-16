@@ -230,6 +230,45 @@ class BTL2Panel:
         )
         if changed_weight:
             model.btl2_detector_weight_path = new_weight
+            model.btl2_detector_weight_preset = "custom"
+        current_preset = str(getattr(model, "btl2_detector_weight_preset", "custom"))
+        imgui.text("Quick Select")
+        if current_preset == "yolov8s":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.20, 0.55, 0.90)
+        if imgui.button("YOLOv8s"):
+            actions["btl2_use_yolov8s_weight"] = True
+        if current_preset == "yolov8s":
+            imgui.pop_style_color()
+        imgui.same_line()
+        if current_preset == "yolov8m":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.25, 0.60, 0.95)
+        if imgui.button("YOLOv8m"):
+            actions["btl2_use_yolov8m_weight"] = True
+        if current_preset == "yolov8m":
+            imgui.pop_style_color()
+        imgui.same_line()
+        if current_preset == "yolov8x":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.30, 0.65, 1.00)
+        if imgui.button("YOLOv8x"):
+            actions["btl2_use_yolov8x_weight"] = True
+        if current_preset == "yolov8x":
+            imgui.pop_style_color()
+        imgui.same_line()
+        if current_preset == "yolo26s":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.55, 0.45, 0.95)
+        if imgui.button("YOLO26s"):
+            actions["btl2_use_yolo26s_weight"] = True
+        if current_preset == "yolo26s":
+            imgui.pop_style_color()
+        imgui.same_line()
+        if current_preset == "fine_tuned":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.20, 0.70, 0.35)
+        if imgui.button("Fine-tuned"):
+            actions["btl2_use_finetuned_weight"] = True
+        if current_preset == "fine_tuned":
+            imgui.pop_style_color()
+        imgui.same_line()
+        imgui.text_disabled(f"Current: {current_preset}")
         if imgui.button("Latest best.pt"):
             actions["btl2_pick_latest_weight"] = True
         imgui.same_line()

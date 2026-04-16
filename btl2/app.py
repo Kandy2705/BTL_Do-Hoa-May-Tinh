@@ -71,7 +71,10 @@ class SyntheticRoadApp:
         self.rgb_pass = RGBRenderPass("shaders/btl2")
         self.depth_pass = DepthRenderPass("shaders/btl2")
         self.seg_pass = SegmentationRenderPass("shaders/btl2")
-        self.coco_exporter = CocoExporter()
+        coco_segmentation_mode = str(self.config.get("annotations", {}).get("coco_segmentation_mode", "polygon")).strip().lower()
+        if coco_segmentation_mode not in {"polygon", "rle"}:
+            coco_segmentation_mode = "polygon"
+        self.coco_exporter = CocoExporter(segmentation_mode=coco_segmentation_mode)
         self.custom_csv_exporter = CustomCsvExporter()
 
     def close(self) -> None:

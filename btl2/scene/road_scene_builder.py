@@ -34,6 +34,7 @@ class RoadSceneBuilder:
         self.config = config
         self.loader = ObjectLoader(asset_root)
         self.showcase_layout = bool(self.config.setdefault("scene", {}).get("showcase_layout", False))
+        self.road_asset = self._find_asset(("road_props", "roads", "Road", "road"), ("road",))
         scene_classes = self.config.setdefault("scene", {}).setdefault("classes", {})
         # Backward compatibility with older configs that used "pedestrian".
         if "person" not in scene_classes and "pedestrian" in scene_classes:
@@ -139,24 +140,32 @@ class RoadSceneBuilder:
         return scene, mesh_registry
 
     def _add_static_road(self, scene: Scene, mesh_registry: dict[str, MeshData]) -> None:
-        """Insert the road plane as a fixed scene object."""
-        mesh = self.loader.load_or_primitive(None, "plane")
-        mesh_registry["road_plane"] = mesh
+        """Insert two stitched road tiles so the texture stays crisp."""
+        mesh = self.loader.load_or_primitive(self.road_asset, "plane")
+        mesh_registry["road_mesh"] = mesh
         road_cfg = self.config["scene"]
-        road = SceneObject(
-            name="road",
-            class_name="road",
-            mesh_key="road_plane",
-            position=np.array([0.0, -0.01, road_cfg["road_length"] * 0.35], dtype=np.float32),
-            rotation_degrees=np.array([0.0, 0.0, 0.0], dtype=np.float32),
-            scale=np.array([road_cfg["road_width"], 1.0, road_cfg["road_length"]], dtype=np.float32),
-            base_color=color_to_float(class_color("road")),
-            instance_id=0,
-            semantic_id=255,
-            metadata={"static": True},
-            aabb_local=mesh.aabb,
+        road_length = float(road_cfg["road_length"])
+        road_width = float(road_cfg["road_width"])
+        tile_length = road_length * 0.5
+        road_tiles = (
+            ("road_001", road_length * 0.25),
+            ("road_002", road_length * 0.75),
         )
-        scene.add_object(road)
+        for name, center_z in road_tiles:
+            road = SceneObject(
+                name=name,
+                class_name="road",
+                mesh_key="road_mesh",
+                position=np.array([0.0, -0.01, center_z], dtype=np.float32),
+                rotation_degrees=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                scale=np.array([road_width, 1.0, tile_length], dtype=np.float32),
+                base_color=color_to_float(class_color("road")),
+                instance_id=0,
+                semantic_id=255,
+                metadata={"static": True, "source_asset": self.road_asset or "plane"},
+                aabb_local=mesh.aabb,
+            )
+            scene.add_object(road)
 
     def _spawn_object(
         self,

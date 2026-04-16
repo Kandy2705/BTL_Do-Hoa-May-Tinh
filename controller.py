@@ -529,10 +529,51 @@ class AppController:
             latest_weight = self.model._find_latest_yolo_weight()
             if latest_weight:
                 self.model.btl2_detector_weight_path = latest_weight
+                self.model.btl2_detector_weight_preset = "fine_tuned"
                 self.model.btl2_inference_status = f"Suggested weight: {latest_weight}"
                 print(f"Đã gợi ý best.pt mới nhất: {latest_weight}")
             else:
                 self.model.btl2_inference_status = "Failed: khong tim thay best.pt trong outputs/training/yolo."
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_use_yolov8s_weight' in actions:
+            try:
+                selected = self.model.set_btl2_detector_weight_preset("yolov8s")
+                print(f"Đã chọn preset yolov8s: {selected}")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_use_yolov8m_weight' in actions:
+            try:
+                selected = self.model.set_btl2_detector_weight_preset("yolov8m")
+                print(f"Đã chọn preset yolov8m: {selected}")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_use_yolov8x_weight' in actions:
+            try:
+                selected = self.model.set_btl2_detector_weight_preset("yolov8x")
+                print(f"Đã chọn preset yolov8x: {selected}")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_use_yolo26s_weight' in actions:
+            try:
+                selected = self.model.set_btl2_detector_weight_preset("yolo26s")
+                print(f"Đã chọn preset yolo26s: {selected}")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
+        if 'btl2_use_finetuned_weight' in actions:
+            try:
+                selected = self.model.set_btl2_detector_weight_preset("fine_tuned")
+                print(f"Đã chọn preset fine-tuned: {selected}")
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
                 print(self.model.btl2_inference_status)
 
         if 'btl2_pick_sample_image' in actions:
@@ -666,6 +707,7 @@ class AppController:
         filename = self._browse_file_dialog("Select YOLO Weight File (.pt):")
         if filename:
             self.model.btl2_detector_weight_path = filename
+            self.model.btl2_detector_weight_preset = self.model._infer_btl2_weight_preset(filename)
             self.model.btl2_inference_status = f"Selected weight: {filename}"
             print(f"Đã chọn YOLO weight: {filename}")
         else:
