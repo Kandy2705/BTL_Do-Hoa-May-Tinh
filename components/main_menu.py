@@ -66,6 +66,12 @@ class MainMenu:
                             actions['shape_changed'] = idx
                     model.selected_category = original_cat
                     imgui.end_menu()
+
+                imgui.separator()
+                if imgui.menu_item("Atom / Molecule Visualizer")[0]:
+                    actions['category_changed'] = 5
+                    actions['chemistry_show_panel'] = True
+                    actions['chemistry_build_scene'] = "bohr"
                 imgui.end_menu()
 
             if imgui.begin_menu("BTL 2"):

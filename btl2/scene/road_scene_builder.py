@@ -127,17 +127,60 @@ class RoadSceneBuilder:
 
         instance_id = 1
         class_spawn_indices = {name: 0 for name in counts}
+        footprints: list[tuple[float, float, float]] = []
         for class_name, count in counts.items():
             for _ in range(count):
                 spec = self.asset_specs[class_name]
                 mesh = self.loader.load_or_primitive(spec.relative_path, spec.primitive_name)
                 mesh_registry[spec.mesh_key] = mesh
                 spawn_index = class_spawn_indices.get(class_name, 0)
-                scene.add_object(self._spawn_object(class_name, spec, mesh, instance_id, spawn_index, randomizer))
+                candidate = self._spawn_non_overlapping_object(
+                    class_name,
+                    spec,
+                    mesh,
+                    instance_id,
+                    spawn_index,
+                    randomizer,
+                    footprints,
+                )
+                scene.add_object(candidate)
+                footprints.append(self._footprint(candidate))
                 class_spawn_indices[class_name] = spawn_index + 1
                 instance_id += 1
 
         return scene, mesh_registry
+
+    def _spawn_non_overlapping_object(
+        self,
+        class_name: str,
+        spec: AssetSpec,
+        mesh: MeshData,
+        instance_id: int,
+        spawn_index: int,
+        randomizer: Randomizer,
+        footprints: list[tuple[float, float, float]],
+    ) -> SceneObject:
+        """Try several deterministic samples so dynamic objects do not overlap badly."""
+        if self.showcase_layout:
+            return self._spawn_object(class_name, spec, mesh, instance_id, spawn_index, randomizer)
+
+        scene_cfg = self.config["scene"]
+        max_attempts = int(scene_cfg.get("spawn_max_attempts", 18))
+        min_separation = float(scene_cfg.get("spawn_min_separation", 0.55))
+        best = None
+        best_penalty = float("inf")
+        for _ in range(max(1, max_attempts)):
+            candidate = self._spawn_object(class_name, spec, mesh, instance_id, spawn_index, randomizer)
+            penalty = self._overlap_penalty(candidate, footprints, min_separation)
+            if penalty <= 0.0:
+                return candidate
+            if penalty < best_penalty:
+                best = candidate
+                best_penalty = penalty
+        if best is not None:
+            best.metadata["spawn_warning"] = f"best_effort_overlap_penalty={best_penalty:.3f}"
+            return best
+        return self._spawn_object(class_name, spec, mesh, instance_id, spawn_index, randomizer)
 
     def _add_static_road(self, scene: Scene, mesh_registry: dict[str, MeshData]) -> None:
         """Insert two stitched road tiles so the texture stays crisp."""
@@ -326,6 +369,31 @@ class RoadSceneBuilder:
         if class_name == "road" or mesh.aabb is None:
             return fallback_y
         return float(max(0.02, -float(mesh.aabb.min_corner[1]) * float(scale[1])))
+
+    @staticmethod
+    def _footprint(obj: SceneObject) -> tuple[float, float, float]:
+        """Approximate a world-space XZ footprint radius for overlap checks."""
+        if obj.aabb_local is None:
+            return float(obj.position[0]), float(obj.position[2]), 1.0
+        extent = (obj.aabb_local.max_corner - obj.aabb_local.min_corner) * obj.scale
+        radius = 0.5 * float(max(abs(extent[0]), abs(extent[2]), 0.25))
+        # Signs in OBJ scale can be weird; the footprint radius must stay positive.
+        return float(obj.position[0]), float(obj.position[2]), abs(radius)
+
+    def _overlap_penalty(
+        self,
+        obj: SceneObject,
+        footprints: list[tuple[float, float, float]],
+        min_separation: float,
+    ) -> float:
+        x, z, radius = self._footprint(obj)
+        penalty = 0.0
+        for other_x, other_z, other_radius in footprints:
+            distance = float(np.hypot(x - other_x, z - other_z))
+            required = radius + other_radius + min_separation
+            if distance < required:
+                penalty += required - distance
+        return penalty
 
     def _distribute_counts(self, total_dynamic: int, randomizer: Randomizer) -> dict[str, int]:
         """Allocate object counts per class while respecting config limits."""

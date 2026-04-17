@@ -21,6 +21,8 @@ scene:
   road_width: 8.0
   lane_width: 3.6
   lane_count: 2
+  spawn_max_attempts: 24
+  spawn_min_separation: 0.55
   sky_top_color: [0.45, 0.65, 0.95]
   sky_bottom_color: [0.85, 0.90, 1.0]
   # Demo profile using currently available real assets.
@@ -65,3 +67,11 @@ annotations:
   visibility_threshold: 0.0005
   segmentation_alpha_preview: 0.45
   coco_segmentation_mode: polygon
+
+validation:
+  enabled: true
+  auto_fix: true
+  require_depth: true
+  require_depth_npy: true
+  require_coco: true
+  require_mask_pixels: true

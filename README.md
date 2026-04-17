@@ -32,6 +32,7 @@ Mục tiêu của project là biến một scene đồ họa thành một pipeli
 - Chỉnh `Position / Rotation / Scale`.
 - Chỉnh màu, shader, texture, flat shading, shininess.
 - Có demo phần tối ưu SGD và lab quaternion SLERP.
+- Có BTL1 Phần 3: Atom/Molecule Visualizer với Bohr atom, H2O, CO2, electron orbit animation, atom bằng sphere và bond bằng cylinder.
 
 ### BTL 2
 - Tạo road-scene procedural bằng asset thật trong `assets/models/`.
@@ -236,6 +237,10 @@ UI chính gồm 3 vùng lớn:
 ### 8.4. `Lab`
 - `Sphere Z 180° SLERP Loop`: bật/tắt animation quaternion.
 - `Rescan Sphere Targets`: quét lại các target sphere.
+
+### 8.5. `BTL 1 -> Atom / Molecule Visualizer`
+- Mở panel BTL1 Phần 3 để tạo Bohr atom, H2O hoặc CO2.
+- Có nút bật/tắt orbit, animation và chỉnh tốc độ animation.
 
 ---
 
@@ -592,14 +597,24 @@ python3 scripts/validate_dataset.py outputs/btl2/showcase_dataset
 python3 scripts/visualize_annotations.py outputs/btl2/showcase_dataset
 ```
 
-### 16.4. Build showcase fine-tune dataset
+### 16.4. Kiểm tra dataset BTL2
+```bash
+python3 scripts/check_btl2_dataset_consistency.py outputs/btl2/showcase_dataset
+```
+
+### 16.5. Xuất GT box overlays
+```bash
+python3 scripts/export_btl2_gt_overlays.py outputs/btl2/showcase_dataset --limit 5
+```
+
+### 16.6. Build showcase fine-tune dataset
 ```bash
 python3 scripts/build_showcase_finetune_dataset.py \
   --source outputs/btl2/showcase_dataset \
   --output outputs/btl2/showcase_finetune_dataset
 ```
 
-### 16.5. Train YOLO
+### 16.7. Train YOLO
 Ví dụ train trên `unity_dataset`:
 
 ```bash

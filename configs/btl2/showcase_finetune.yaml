@@ -5,7 +5,7 @@ image_height: 720
 num_frames: 180
 train_split: 0.85
 preview_every: 12
-save_depth_npy: false
+save_depth_npy: true
 instance_segmentation: true
 camera:
   fov_y_degrees: 42.0
@@ -25,6 +25,8 @@ scene:
   road_width: 14.0
   lane_width: 4.2
   lane_count: 3
+  spawn_max_attempts: 24
+  spawn_min_separation: 0.55
   sky_top_color: [0.48, 0.69, 0.96]
   sky_bottom_color: [0.95, 0.98, 1.0]
   min_objects: 7
@@ -68,3 +70,11 @@ annotations:
   visibility_threshold: 0.0005
   segmentation_alpha_preview: 0.45
   coco_segmentation_mode: polygon
+
+validation:
+  enabled: true
+  auto_fix: true
+  require_depth: true
+  require_depth_npy: true
+  require_coco: true
+  require_mask_pixels: true

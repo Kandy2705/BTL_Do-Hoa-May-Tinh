@@ -817,5 +817,11 @@ class Viewer:
             inference_preview = self.get_btl2_preview_texture(getattr(model, "btl2_inference_preview_path", ""), cache_key="inference")
             btl2_actions = BTL2Panel.draw(model, dataset_preview, inference_preview)
             actions.update(btl2_actions)
+
+        # 9. BTL 1 PART 3 CHEMISTRY PANEL
+        if getattr(model, "chemistry_panel_visible", False):
+            from components.chemistry_panel import ChemistryPanel
+            chemistry_actions = ChemistryPanel.draw(model)
+            actions.update(chemistry_actions)
         
         return actions

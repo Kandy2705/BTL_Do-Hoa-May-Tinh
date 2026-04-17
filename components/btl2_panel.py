@@ -14,6 +14,7 @@ class BTL2Panel:
         # Ưu tiên nhận diện trạng thái kết thúc trước để tránh bị dính nhãn RUNNING sai.
         if (
             low.startswith("done")
+            or low.startswith("validation ok")
             or "generated" in low
             or "exported" in low
             or "loaded procedural preview" in low
@@ -21,7 +22,7 @@ class BTL2Panel:
             or "hoan tat" in low
         ):
             return "DONE", (0.36, 0.84, 0.55), text
-        if "loi" in low or "failed" in low or "validation" in low:
+        if "loi" in low or "failed" in low or "validation failed" in low:
             return "FAILED", (0.95, 0.35, 0.33), text
         if "dang chay" in low or "running" in low or "in progress" in low:
             return "RUNNING", (0.96, 0.77, 0.30), text
@@ -145,6 +146,11 @@ class BTL2Panel:
         imgui.separator()
 
         imgui.text("3) Validation")
+        if imgui.button("Validate Output Dataset"):
+            actions["btl2_validate_output"] = True
+        imgui.same_line()
+        imgui.text_disabled("checks RGB/mask/depth/labels/metadata/COCO")
+
         if can_generate:
             imgui.push_style_color(imgui.COLOR_TEXT, 0.36, 0.84, 0.55)
             imgui.text("Ready to generate.")

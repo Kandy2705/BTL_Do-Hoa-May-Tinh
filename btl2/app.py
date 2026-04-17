@@ -11,6 +11,7 @@ import glfw
 from btl2.annotations.bbox import compute_bounding_boxes
 from btl2.annotations.coco_export import CocoExporter
 from btl2.annotations.custom_export import CustomCsvExporter
+from btl2.annotations.dataset_consistency import validate_dataset
 from btl2.annotations.depth_export import linearize_depth, save_depth_outputs
 from btl2.annotations.metadata_export import export_frame_metadata
 from btl2.annotations.occlusion import estimate_occlusion_ratios
@@ -97,6 +98,7 @@ class SyntheticRoadApp:
         self.coco_exporter.write(self.output_root / "annotations_coco")
         self.custom_csv_exporter.write(self.output_root / "annotations_custom")
         write_dataset_yaml(self.output_root, list(self.coco_exporter.categories.values()))
+        self._validate_exported_dataset()
         return summaries
 
     def preview_scene(self, seed_override: int | None = None) -> FrameArtifacts:
@@ -139,7 +141,36 @@ class SyntheticRoadApp:
         self.coco_exporter.write(self.output_root / "annotations_coco")
         self.custom_csv_exporter.write(self.output_root / "annotations_custom")
         write_dataset_yaml(self.output_root, list(self.coco_exporter.categories.values()))
+        self._validate_exported_dataset()
         return summaries
+
+    def _validate_exported_dataset(self) -> None:
+        """Run a strict consistency check after export so bad datasets fail fast."""
+        validation_cfg = self.config.get("validation", {})
+        enabled = bool(validation_cfg.get("enabled", True))
+        if not enabled:
+            return
+
+        report = validate_dataset(
+            self.output_root,
+            fix=bool(validation_cfg.get("auto_fix", True)),
+            require_depth=bool(validation_cfg.get("require_depth", True)),
+            require_depth_npy=bool(validation_cfg.get("require_depth_npy", self.config.get("save_depth_npy", False))),
+            require_coco=bool(validation_cfg.get("require_coco", True)),
+            require_mask_pixels=bool(validation_cfg.get("require_mask_pixels", True)),
+        )
+        report_path = self.output_root / "quality_report.json"
+        report_path.write_text(__import__("json").dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        issue_count = int(report.get("summary", {}).get("total_issues", 0))
+        warning_count = int(report.get("summary", {}).get("total_warnings", 0))
+        if issue_count:
+            preview = "; ".join(report.get("issues", [])[:5])
+            raise RuntimeError(
+                f"Dataset validation failed with {issue_count} issue(s). "
+                f"Report: {report_path}. First issues: {preview}"
+            )
+        if warning_count:
+            print(f"BTL2 dataset validation warnings: {warning_count}. Report: {report_path}")
 
     def render_frame(self, scene, mesh_registry) -> FrameArtifacts:
         """Run RGB, depth, and segmentation passes and derive annotations."""

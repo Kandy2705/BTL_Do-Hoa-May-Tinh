@@ -22,6 +22,7 @@ def _default_shader_paths() -> ShaderPaths:
 
 from libs.transform import Trackball, quaternion_from_axis_angle, quaternion_slerp
 from libs.loss_functions import LOSS_FUNCTIONS
+from geometry.chemistry.chemistry_math import bond_transform_xy, orbit_position, rotate_y_point
 class AppModel:
     PREFERRED_YOLO_WEIGHT = Path("outputs/training/yolo/unity_2400_yolov8s_640/weights/best.pt")
     PRETRAINED_YOLO_WEIGHT = Path("outputs/training/yolo/pretrained/yolov8s.pt")
@@ -268,6 +269,20 @@ class AppModel:
         self.lab_slerp_start_time: float = time.perf_counter()        # Thời điểm bắt đầu animation
         self.lab_slerp_targets: Dict[Any, Dict[str, Any]] = {}   # Danh sách các sphere cần animate
         self.lab_slerp_active_info: Optional[Dict[str, float]] = None # Info của sphere đang active
+
+        # === BTL 1 - Part 3: Atom / Molecule visualization ===
+        # Bản tối thiểu đủ yêu cầu đề: Bohr atom, H2O, CO2, atom=sphere,
+        # bond=cylinder, electron orbit animation, và metadata scene graph.
+        self.chemistry_panel_visible: bool = False
+        self.chemistry_scene_kind: str = "none"
+        self.chemistry_animate: bool = True
+        self.chemistry_show_orbits: bool = True
+        self.chemistry_animation_speed: float = 1.0
+        self.chemistry_start_time: float = time.perf_counter()
+        self.chemistry_object_ids: set[Any] = set()
+        self.chemistry_electron_states: list[dict[str, Any]] = []
+        self.chemistry_rotating_states: list[dict[str, Any]] = []
+        self.chemistry_scene_graph: dict[str, Any] = {}
         
         # Initialize Scene
         self.scene = Scene()
@@ -488,6 +503,40 @@ class AppModel:
         self.btl2_scene_renderable_count = len(
             [obj for obj in self.scene.objects if hasattr(obj, 'drawable') and getattr(obj, 'drawable', None) is not None]
         )
+
+    def validate_btl2_output(self) -> dict[str, Any]:
+        """Run the same strict dataset checker used after export, directly from the UI."""
+        from btl2.annotations.dataset_consistency import validate_dataset
+        from btl2.utils.io import load_yaml
+
+        cfg = load_yaml(self.btl2_config_path)
+        cfg = cfg if isinstance(cfg, dict) else {}
+        validation_cfg = cfg.get("validation", {})
+        report = validate_dataset(
+            Path(self.btl2_output_dir).expanduser(),
+            fix=bool(validation_cfg.get("auto_fix", True)),
+            require_depth=bool(validation_cfg.get("require_depth", True)),
+            require_depth_npy=bool(validation_cfg.get("require_depth_npy", cfg.get("save_depth_npy", False))),
+            require_coco=bool(validation_cfg.get("require_coco", True)),
+            require_mask_pixels=bool(validation_cfg.get("require_mask_pixels", True)),
+        )
+        report_path = Path(self.btl2_output_dir).expanduser() / "quality_report.json"
+        report_path.write_text(__import__("json").dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        summary = report.get("summary", {})
+        issue_count = int(summary.get("total_issues", 0))
+        warning_count = int(summary.get("total_warnings", 0))
+        self.btl2_last_result = {
+            **(self.btl2_last_result or {}),
+            "quality_report": str(report_path),
+            "validation_issues": issue_count,
+            "validation_warnings": warning_count,
+        }
+        if issue_count:
+            self.btl2_last_status = f"Validation failed: {issue_count} issue(s), {warning_count} warning(s). Report: {report_path}"
+        else:
+            self.btl2_last_status = f"Validation OK: 0 issue(s), {warning_count} warning(s). Report: {report_path}"
+        return report
 
     def run_btl2_generator(self) -> dict[str, Any]:
         """Gọi pipeline BTL 2 ngay từ app BTL 1 để hai phần liên thông với nhau."""
@@ -1422,6 +1471,271 @@ class AppModel:
                 pos[1] = float(cy + radius * math.sin(theta))
                 pos[2] = float(self.lab_slerp_active_info["base_pos_z"])
                 rot[2] = float(self.lab_slerp_active_info["base_rot_z"] + delta_z_deg)
+
+    # ------------------------------------------------------------------
+    # BTL 1 - Part 3: Atom and molecule visualization helpers
+    # ------------------------------------------------------------------
+    def clear_chemistry_scene(self) -> None:
+        """Remove only objects created by the Chemistry visualizer."""
+        if not self.chemistry_object_ids:
+            self.chemistry_scene_kind = "none"
+            self.chemistry_scene_graph = {}
+            self.chemistry_electron_states = []
+            self.chemistry_rotating_states = []
+            return
+
+        remaining = []
+        for obj in self.scene.objects:
+            if obj.id in self.chemistry_object_ids:
+                continue
+            remaining.append(obj)
+        self.scene.objects[:] = remaining
+        self.scene.selected_objects[:] = [
+            obj for obj in self.scene.selected_objects if obj.id not in self.chemistry_object_ids
+        ]
+        self.hierarchy_objects[:] = [
+            item for item in self.hierarchy_objects if item.get("id") not in self.chemistry_object_ids
+        ]
+
+        self.chemistry_object_ids.clear()
+        self.chemistry_electron_states = []
+        self.chemistry_rotating_states = []
+        self.chemistry_scene_graph = {}
+        self.chemistry_scene_kind = "none"
+
+    def _register_chemistry_object(self, obj: Any, role: str, parent: str | None = None) -> Any:
+        obj.chemistry_role = role
+        obj.chemistry_parent = parent
+        self.chemistry_object_ids.add(obj.id)
+        return obj
+
+    def _style_chemistry_object(
+        self,
+        obj: Any,
+        color: list[float],
+        position: list[float],
+        scale: list[float],
+        rotation: list[float] | None = None,
+    ) -> Any:
+        obj.position = [float(v) for v in position]
+        obj.scale = [float(v) for v in scale]
+        obj.rotation = [float(v) for v in (rotation or [0.0, 0.0, 0.0])]
+        obj.color = [float(color[0]), float(color[1]), float(color[2]), 1.0]
+        obj.shader = 2  # Phong
+        drawable = getattr(obj, "drawable", None)
+        if drawable is not None:
+            if hasattr(drawable, "render_mode"):
+                drawable.render_mode = 2
+            if hasattr(drawable, "use_flat_color"):
+                drawable.use_flat_color = False
+            if hasattr(drawable, "set_color"):
+                drawable.set_color(color[:3])
+            if hasattr(drawable, "shininess"):
+                drawable.shininess = 120.0
+        self._sync_scene_object_visuals(obj)
+        return obj
+
+    def _add_chemistry_atom(
+        self,
+        name: str,
+        color: list[float],
+        position: list[float],
+        radius: float,
+        role: str = "atom",
+        parent: str | None = None,
+    ) -> Any:
+        obj = self.add_hierarchy_object(name, "3d", shape_name="Sphere (Lat-Long)")
+        self._register_chemistry_object(obj, role, parent)
+        return self._style_chemistry_object(obj, color, position, [radius, radius, radius])
+
+    def _add_chemistry_bond(self, name: str, p1: list[float], p2: list[float], parent: str | None = None) -> Any:
+        obj = self.add_hierarchy_object(name, "3d", shape_name="Cylinder")
+        self._register_chemistry_object(obj, "bond", parent)
+
+        mid, rotation, length = bond_transform_xy(p1, p2)
+        return self._style_chemistry_object(
+            obj,
+            [0.72, 0.74, 0.78],
+            mid,
+            [0.055, length * 0.5, 0.055],
+            rotation,
+        )
+
+    def _add_chemistry_orbit(
+        self,
+        name: str,
+        radius: float,
+        rotation: list[float],
+        parent: str | None = None,
+    ) -> Any:
+        """Add a thin torus orbit with custom minor radius."""
+        import importlib
+        Torus = getattr(importlib.import_module("geometry.3d.torus3d"), "Torus")
+
+        obj = GameObjectOBJ(name)
+        obj.drawable = Torus("./shaders/standard.vert", "./shaders/standard.frag", R=1.0, r=0.018, slices=96, stacks=8)
+        obj.drawable.setup()
+        obj.visible = bool(self.chemistry_show_orbits)
+        self.scene.add_object(obj)
+        self.scene.select_object(obj)
+        self.hierarchy_objects.append({
+            "id": obj.id,
+            "name": obj.name,
+            "type": "3d",
+            "selected": True,
+            "visible": obj.visible,
+        })
+        self._register_chemistry_object(obj, "orbit", parent)
+        return self._style_chemistry_object(
+            obj,
+            [0.42, 0.85, 1.0],
+            [0.0, 0.0, 0.0],
+            [radius, radius, radius],
+            rotation,
+        )
+
+    def _ensure_chemistry_light(self) -> None:
+        if any(hasattr(obj, "light_intensity") for obj in self.scene.objects):
+            return
+        light = self.add_hierarchy_object("Chemistry Key Light", "light")
+        self._register_chemistry_object(light, "light", "chemistry_root")
+        light.position = [3.0, 5.0, 4.0]
+        light.light_intensity = 2.0
+        light.light_color = [1.0, 0.96, 0.88]
+
+    def build_chemistry_scene(self, kind: str) -> None:
+        """Build the requested BTL1 Part 3 demo scene."""
+        kind = (kind or "bohr").strip().lower()
+        if kind not in {"bohr", "h2o", "co2"}:
+            kind = "bohr"
+
+        self.clear_chemistry_scene()
+        self.chemistry_panel_visible = True
+        self.chemistry_scene_kind = kind
+        self.chemistry_start_time = time.perf_counter()
+        self._ensure_chemistry_light()
+
+        if kind == "bohr":
+            self._build_bohr_atom()
+        elif kind == "h2o":
+            self._build_h2o()
+        else:
+            self._build_co2()
+
+        self.chemistry_scene_graph = {
+            "root": f"chemistry_{kind}",
+            "nodes": [
+                {
+                    "name": getattr(obj, "name", ""),
+                    "role": getattr(obj, "chemistry_role", ""),
+                    "parent": getattr(obj, "chemistry_parent", None),
+                }
+                for obj in self.scene.objects
+                if obj.id in self.chemistry_object_ids
+            ],
+            "transform_rule": "world_matrix = parent_world_matrix @ local_TRS_matrix",
+        }
+        self.select_hierarchy_object(len(self.hierarchy_objects) - 1)
+
+    def _build_bohr_atom(self) -> None:
+        self._add_chemistry_atom("chem_nucleus", [1.0, 0.25, 0.12], [0.0, 0.0, 0.0], 0.45, "nucleus", "bohr_root")
+
+        orbits = [
+            (1.25, [0.0, 0.0, 0.0], 1.0, 0.00),
+            (1.80, [32.0, 0.0, 18.0], 1.35, 1.70),
+            (2.35, [-28.0, 0.0, -30.0], 1.70, 3.20),
+        ]
+        for idx, (radius, rot, speed, phase) in enumerate(orbits, start=1):
+            orbit = self._add_chemistry_orbit(f"chem_orbit_{idx}", radius, rot, "bohr_root")
+            electron = self._add_chemistry_atom(
+                f"chem_electron_{idx}",
+                [0.15, 0.58, 1.0],
+                [radius * math.cos(phase), 0.0, radius * math.sin(phase)],
+                0.13,
+                "electron",
+                orbit.name,
+            )
+            self.chemistry_electron_states.append({
+                "object_id": electron.id,
+                "radius": radius,
+                "speed": speed,
+                "phase": phase,
+                "orbit_rotation": rot,
+            })
+
+    def _build_h2o(self) -> None:
+        root = "h2o_root"
+        oxygen = [0.0, 0.0, 0.0]
+        angle = math.radians(104.5 / 2.0)
+        bond_length = 1.22
+        h1 = [math.sin(angle) * bond_length, math.cos(angle) * bond_length, 0.0]
+        h2 = [-math.sin(angle) * bond_length, math.cos(angle) * bond_length, 0.0]
+
+        self._add_chemistry_atom("chem_H2O_oxygen", [1.0, 0.10, 0.10], oxygen, 0.38, "oxygen", root)
+        self._add_chemistry_atom("chem_H2O_hydrogen_1", [0.96, 0.96, 1.0], h1, 0.22, "hydrogen", root)
+        self._add_chemistry_atom("chem_H2O_hydrogen_2", [0.96, 0.96, 1.0], h2, 0.22, "hydrogen", root)
+        self._add_chemistry_bond("chem_H2O_bond_1", oxygen, h1, root)
+        self._add_chemistry_bond("chem_H2O_bond_2", oxygen, h2, root)
+        self._capture_chemistry_rotating_group(root)
+
+    def _build_co2(self) -> None:
+        root = "co2_root"
+        carbon = [0.0, 0.0, 0.0]
+        o1 = [-1.28, 0.0, 0.0]
+        o2 = [1.28, 0.0, 0.0]
+
+        self._add_chemistry_atom("chem_CO2_carbon", [0.08, 0.08, 0.08], carbon, 0.34, "carbon", root)
+        self._add_chemistry_atom("chem_CO2_oxygen_left", [1.0, 0.10, 0.10], o1, 0.38, "oxygen", root)
+        self._add_chemistry_atom("chem_CO2_oxygen_right", [1.0, 0.10, 0.10], o2, 0.38, "oxygen", root)
+        self._add_chemistry_bond("chem_CO2_bond_left", carbon, o1, root)
+        self._add_chemistry_bond("chem_CO2_bond_right", carbon, o2, root)
+        self._capture_chemistry_rotating_group(root)
+
+    def _capture_chemistry_rotating_group(self, parent_name: str) -> None:
+        self.chemistry_rotating_states = []
+        for obj in self.scene.objects:
+            if obj.id not in self.chemistry_object_ids:
+                continue
+            if getattr(obj, "chemistry_parent", None) != parent_name:
+                continue
+            self.chemistry_rotating_states.append({
+                "object_id": obj.id,
+                "base_position": list(getattr(obj, "position", [0.0, 0.0, 0.0])),
+                "base_rotation": list(getattr(obj, "rotation", [0.0, 0.0, 0.0])),
+            })
+
+    def set_chemistry_show_orbits(self, visible: bool) -> None:
+        self.chemistry_show_orbits = bool(visible)
+        for obj in self.scene.objects:
+            if obj.id in self.chemistry_object_ids and getattr(obj, "chemistry_role", "") == "orbit":
+                obj.visible = self.chemistry_show_orbits
+
+    def update_chemistry_animation(self) -> None:
+        if not self.chemistry_animate:
+            return
+        if not self.chemistry_electron_states and not self.chemistry_rotating_states:
+            return
+
+        elapsed = (time.perf_counter() - self.chemistry_start_time) * float(self.chemistry_animation_speed)
+        by_id = {obj.id: obj for obj in self.scene.objects}
+
+        for state in self.chemistry_electron_states:
+            obj = by_id.get(state["object_id"])
+            if obj is None:
+                continue
+            theta = elapsed * float(state["speed"]) + float(state["phase"])
+            obj.position = orbit_position(float(state["radius"]), theta, state["orbit_rotation"])
+            obj.rotation[1] = (obj.rotation[1] + 3.0) % 360.0
+
+        molecule_angle = elapsed * 0.55
+        molecule_deg = math.degrees(molecule_angle)
+        for state in self.chemistry_rotating_states:
+            obj = by_id.get(state["object_id"])
+            if obj is None:
+                continue
+            obj.position = rotate_y_point(state["base_position"], molecule_angle)
+            base_rot = list(state["base_rotation"])
+            obj.rotation = [float(base_rot[0]), float(base_rot[1] + molecule_deg), float(base_rot[2])]
 
     def set_object_type(self, obj_type: str) -> None:
         """Set object type: 'mesh', 'light', or 'camera'"""

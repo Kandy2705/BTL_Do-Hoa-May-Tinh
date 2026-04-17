@@ -472,6 +472,35 @@ class AppController:
         if 'lab_rescan_slerp_targets' in actions:
             self.model.refresh_lab_slerp_targets()
             print(f"Lab SLERP targets: {len(self.model.lab_slerp_targets)} sphere(s)")
+
+        # === BTL 1 - PART 3: ATOM / MOLECULE VISUALIZER ===
+        if 'chemistry_show_panel' in actions:
+            self.model.chemistry_panel_visible = True
+
+        if 'chemistry_hide_panel' in actions:
+            self.model.chemistry_panel_visible = False
+
+        if 'chemistry_build_scene' in actions:
+            try:
+                self.model.build_chemistry_scene(actions['chemistry_build_scene'])
+                self.view.center_scene_view(self.model.scene.objects)
+                print(f"Chemistry scene loaded: {self.model.chemistry_scene_kind}")
+            except Exception as exc:
+                print(f"Failed to build chemistry scene: {exc}")
+
+        if 'chemistry_clear_scene' in actions:
+            self.model.clear_chemistry_scene()
+            print("Chemistry scene cleared.")
+
+        if 'chemistry_set_animate' in actions:
+            self.model.chemistry_animate = bool(actions['chemistry_set_animate'])
+            self.model.chemistry_start_time = __import__('time').perf_counter()
+
+        if 'chemistry_set_show_orbits' in actions:
+            self.model.set_chemistry_show_orbits(bool(actions['chemistry_set_show_orbits']))
+
+        if 'chemistry_set_speed' in actions:
+            self.model.chemistry_animation_speed = float(actions['chemistry_set_speed'])
             
         # SGD actions are now handled by SGDPanel and model methods
 
@@ -497,6 +526,19 @@ class AppController:
 
         if 'btl2_refresh_preview' in actions:
             self.model.refresh_btl2_preview()
+
+        if 'btl2_validate_output' in actions:
+            try:
+                report = self.model.validate_btl2_output()
+                summary = report.get("summary", {})
+                print(
+                    "BTL 2 validation:",
+                    f"issues={summary.get('total_issues', 0)},",
+                    f"warnings={summary.get('total_warnings', 0)}",
+                )
+            except Exception as exc:
+                self.model.btl2_last_status = f"Validation failed: {exc}"
+                print(self.model.btl2_last_status)
 
         if 'btl2_generate' in actions:
             try:
@@ -836,6 +878,9 @@ class AppController:
 
             # === Lab SLERP Animation Step ===
             self.model.update_lab_slerp_animation()
+
+            # === BTL1 Part 3 Chemistry Animation Step ===
+            self.model.update_chemistry_animation()
             
             # --- [ĐỒNG BỘ 1] GIẢI QUYẾT XUNG ĐỘT GIỮA GIZMO VÀ TRACKBALL ---
             cameras = [obj for obj in self.model.scene.objects if hasattr(obj, 'camera_fov')]

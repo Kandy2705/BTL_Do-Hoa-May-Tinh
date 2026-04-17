@@ -14,8 +14,12 @@ class InspectorPanel:
         win_w = max(win_w, 800)
         win_h = max(win_h, 600)
         
+        inspector_h = max(win_h - 20, 100)
+        if bool(getattr(model, "chemistry_panel_visible", False)) and model.selected_category == 5:
+            inspector_h = max(300, min(int(win_h * 0.52), win_h - 285))
+
         imgui.set_next_window_position(win_w - 320, 20)
-        imgui.set_next_window_size(320, max(win_h - 20, 100))
+        imgui.set_next_window_size(320, inspector_h)
         imgui.begin("Inspector", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         
         # Check if in Normal mode (category 5)
