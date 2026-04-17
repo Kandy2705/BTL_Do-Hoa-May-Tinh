@@ -23,7 +23,7 @@ class Viewer:
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        self.win = glfw.create_window(width, height, 'HCMUT - Unity Engine Clone', None, None)
+        self.win = glfw.create_window(width, height, 'HCMUT - Ngo Ngoc Trieu Man', None, None)
         glfw.make_context_current(self.win)
 
         gl.glEnable(gl.GL_DEPTH_TEST)
