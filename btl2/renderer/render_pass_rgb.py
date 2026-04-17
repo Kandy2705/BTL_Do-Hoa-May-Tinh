@@ -52,6 +52,8 @@ class RGBRenderPass:
         self.shader.set_float("u_light_intensity", scene.light.intensity)
         self.shader.set_float("u_ambient_strength", scene.light.ambient_strength)
         self.shader.set_int("u_texture", 0)
+        self.shader.set_float("u_texture_brightness", 1.0)
+        self.shader.set_float("u_texture_saturation", 1.0)
 
         for obj in scene.objects:
             self._draw_object(obj, meshes[obj.mesh_key], materials[obj.instance_id])
@@ -64,9 +66,20 @@ class RGBRenderPass:
         self.shader.set_vec3("u_base_color", material.base_color)
         use_texture = mesh.texture_id is not None
         self.shader.set_int("u_use_texture", 1 if use_texture else 0)
+        brightness, saturation = self._texture_adjustment(obj)
+        self.shader.set_float("u_texture_brightness", brightness)
+        self.shader.set_float("u_texture_saturation", saturation)
         if use_texture:
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, mesh.texture_id)
         else:
             glBindTexture(GL_TEXTURE_2D, 0)
         mesh.draw()
+
+    @staticmethod
+    def _texture_adjustment(obj: SceneObject) -> tuple[float, float]:
+        """Make large city/intersection backdrops brighter without changing vehicle colors."""
+        name = f"{obj.name} {obj.metadata.get('original_name', '')} {obj.metadata.get('source_asset', '')}".lower()
+        if any(token in name for token in ("city", "intersection", "building", "gas_station", "gas station")):
+            return 1.20, 1.28
+        return 1.0, 1.0

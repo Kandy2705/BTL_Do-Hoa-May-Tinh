@@ -12,8 +12,16 @@ uniform vec3 u_light_dir;
 uniform vec3 u_light_color;
 uniform float u_light_intensity;
 uniform float u_ambient_strength;
+uniform float u_texture_brightness;
+uniform float u_texture_saturation;
 
 out vec4 frag_color;
+
+vec3 adjust_texture_color(vec3 color) {
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    color = mix(vec3(luma), color, u_texture_saturation);
+    return clamp(color * u_texture_brightness, 0.0, 1.0);
+}
 
 void main() {
     vec3 normal = normalize(v_normal);
@@ -27,7 +35,7 @@ void main() {
     float specular = pow(max(dot(view_dir, reflect_dir), 0.0), 24.0);
     vec3 albedo = u_base_color;
     if (u_use_texture) {
-        albedo = texture(u_texture, v_texcoord).rgb;
+        albedo = adjust_texture_color(texture(u_texture, v_texcoord).rgb);
     }
 
     vec3 ambient_term = max(u_ambient_strength, 0.46) * albedo;

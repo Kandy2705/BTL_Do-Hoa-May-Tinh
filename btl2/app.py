@@ -279,32 +279,34 @@ class SyntheticRoadApp:
         instance_id = 1
         for obj in renderables:
             drawable = getattr(obj, "drawable", None)
-            mesh = self._mesh_from_drawable(drawable)
-            if mesh is None:
-                continue
-            mesh_key = f"btl1_mesh_{obj.id}"
-            mesh_registry[mesh_key] = mesh
             class_name = self._infer_class_name(obj.name)
             if class_name is None:
                 continue
             is_road = class_name == "road"
+            meshes = self._meshes_from_drawable(drawable, split_by_material=is_road)
+            if not meshes:
+                continue
             current_instance_id = 0 if is_road else instance_id
             semantic_id = 255 if is_road else CLASS_TO_ID[class_name]
-            scene.add_object(
-                SceneObject(
-                    name=obj.name,
-                    class_name=class_name,
-                    mesh_key=mesh_key,
-                    position=np.asarray(obj.position, dtype=np.float32),
-                    rotation_degrees=np.asarray(obj.rotation, dtype=np.float32),
-                    scale=np.asarray(obj.scale, dtype=np.float32),
-                    base_color=self._base_color_from_btl1(obj, class_name),
-                    instance_id=current_instance_id,
-                    semantic_id=semantic_id,
-                    metadata={"source": "btl1_scene", "original_name": obj.name},
-                    aabb_local=mesh.aabb,
+
+            for mesh_suffix, mesh in meshes:
+                mesh_key = f"btl1_mesh_{obj.id}_{mesh_suffix}"
+                mesh_registry[mesh_key] = mesh
+                scene.add_object(
+                    SceneObject(
+                        name=obj.name if len(meshes) == 1 else f"{obj.name}_{mesh_suffix}",
+                        class_name=class_name,
+                        mesh_key=mesh_key,
+                        position=np.asarray(obj.position, dtype=np.float32),
+                        rotation_degrees=np.asarray(obj.rotation, dtype=np.float32),
+                        scale=np.asarray(obj.scale, dtype=np.float32),
+                        base_color=self._base_color_from_btl1(obj, class_name),
+                        instance_id=current_instance_id,
+                        semantic_id=semantic_id,
+                        metadata={"source": "btl1_scene", "original_name": obj.name},
+                        aabb_local=mesh.aabb,
+                    )
                 )
-            )
             if not is_road:
                 instance_id += 1
 
@@ -363,14 +365,20 @@ class SyntheticRoadApp:
             ambient_strength=0.52,
         )
 
-    @staticmethod
-    def _mesh_from_drawable(drawable) -> MeshData | None:
-        """Convert a BTL1 drawable into CPU-side mesh buffers expected by BTL2."""
+    @classmethod
+    def _meshes_from_drawable(cls, drawable, split_by_material: bool = False) -> list[tuple[str, MeshData]]:
+        """Convert a BTL1 drawable into one or more BTL2 meshes.
+
+        BTL1 OBJ preview supports multi-material rendering by drawing index
+        ranges with different textures. The BTL2 offscreen renderer uses one
+        texture per mesh, so static city/road meshes must be split by material
+        to keep RGB texture mapping identical to the viewport.
+        """
         if drawable is None or not hasattr(drawable, "vertices"):
-            return None
+            return []
         vertices = np.asarray(drawable.vertices, dtype=np.float32)
         if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) == 0:
-            return None
+            return []
 
         normals = np.asarray(getattr(drawable, "normals", np.tile([[0.0, 1.0, 0.0]], (len(vertices), 1))), dtype=np.float32)
         if normals.shape != vertices.shape:
@@ -384,22 +392,74 @@ class SyntheticRoadApp:
         else:
             usable = (len(vertices) // 3) * 3
             if usable < 3:
-                return None
+                return []
             indices = np.arange(usable, dtype=np.uint32)
             vertices = vertices[:usable]
             normals = normals[:usable]
             texcoords = texcoords[:usable]
 
-        texture_path = None
-        material_texture_path = getattr(drawable, "material_texture_path", None)
-        if material_texture_path:
-            texture_path = Path(material_texture_path)
-        elif getattr(drawable, "material_texture_paths", None):
+        if split_by_material and getattr(drawable, "material_groups", None):
+            material_texture_paths = getattr(drawable, "material_texture_paths", {}) or {}
+            meshes: list[tuple[str, MeshData]] = []
+            for group_index, group in enumerate(drawable.material_groups):
+                start = int(group.get("start", 0))
+                count = int(group.get("count", 0))
+                if count <= 0 or start < 0 or start + count > len(indices):
+                    continue
+                group_indices = indices[start:start + count]
+                material_name = group.get("material")
+                texture_path = cls._valid_texture_path(material_texture_paths.get(material_name))
+                suffix = f"mat{group_index:03d}"
+                mesh = cls._mesh_subset(vertices, normals, texcoords, group_indices, texture_path)
+                if mesh is not None:
+                    meshes.append((suffix, mesh))
+            if meshes:
+                return meshes
+
+        texture_path = cls._valid_texture_path(getattr(drawable, "material_texture_path", None))
+        if texture_path is None and getattr(drawable, "material_texture_paths", None):
             first_texture = next(iter(drawable.material_texture_paths.values()), None)
-            if first_texture:
-                texture_path = Path(first_texture)
-        if texture_path is not None and not texture_path.exists():
-            texture_path = None
+            texture_path = cls._valid_texture_path(first_texture)
+
+        mesh = cls._mesh_from_arrays(vertices, normals, texcoords, indices, texture_path)
+        return [("full", mesh)] if mesh is not None else []
+
+    @staticmethod
+    def _valid_texture_path(path_value) -> Path | None:
+        if not path_value:
+            return None
+        texture_path = Path(path_value)
+        return texture_path if texture_path.exists() else None
+
+    @staticmethod
+    def _mesh_subset(
+        vertices: np.ndarray,
+        normals: np.ndarray,
+        texcoords: np.ndarray,
+        group_indices: np.ndarray,
+        texture_path: Path | None,
+    ) -> MeshData | None:
+        if group_indices.size < 3:
+            return None
+        unique_indices, remapped = np.unique(group_indices.astype(np.uint32), return_inverse=True)
+        return SyntheticRoadApp._mesh_from_arrays(
+            vertices[unique_indices],
+            normals[unique_indices],
+            texcoords[unique_indices],
+            remapped.astype(np.uint32),
+            texture_path,
+        )
+
+    @staticmethod
+    def _mesh_from_arrays(
+        vertices: np.ndarray,
+        normals: np.ndarray,
+        texcoords: np.ndarray,
+        indices: np.ndarray,
+        texture_path: Path | None,
+    ) -> MeshData | None:
+        if len(vertices) == 0 or len(indices) < 3:
+            return None
 
         from btl2.utils.math3d import AABB
 

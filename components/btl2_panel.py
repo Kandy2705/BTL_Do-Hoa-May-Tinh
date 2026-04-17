@@ -311,6 +311,15 @@ class BTL2Panel:
         )
         if changed_imgsz:
             model.btl2_inference_imgsz = max(320, min(1280, int(new_imgsz)))
+        imgui.text_disabled(f"Device: {getattr(model, 'btl2_inference_device', 'cpu')}")
+        imgui.same_line()
+        if imgui.button("Use CPU"):
+            model.btl2_inference_device = "cpu"
+            model.btl2_inference_status = "Selected device: CPU (safer, slower)."
+        imgui.same_line()
+        if imgui.button("Use MPS"):
+            model.btl2_inference_device = "mps"
+            model.btl2_inference_status = "Selected device: MPS (faster, may run out of memory)."
 
         if imgui.button("Load Detector"):
             actions["btl2_load_detector"] = True

@@ -615,6 +615,21 @@ class AppModel:
         return "cpu"
 
     @staticmethod
+    def _is_mps_oom_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "mps" in text and ("out of memory" in text or "high_watermark" in text)
+
+    @staticmethod
+    def _clear_mps_cache() -> None:
+        try:
+            import torch
+
+            if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+                torch.mps.empty_cache()
+        except Exception:
+            pass
+
+    @staticmethod
     def _image_candidates(image_dir: Path) -> List[Path]:
         image_paths: List[Path] = []
         for pattern in ("*.png", "*.jpg", "*.jpeg"):
@@ -1128,13 +1143,31 @@ class AppModel:
         self.load_btl2_detector()
         assert self._btl2_detector is not None
 
-        results = self._btl2_detector.predict(
-            source=str(image_path),
-            conf=float(self.btl2_inference_conf),
-            imgsz=int(self.btl2_inference_imgsz),
-            device=self.btl2_inference_device,
-            verbose=False,
-        )
+        requested_device = str(self.btl2_inference_device)
+        used_device = requested_device
+        try:
+            results = self._btl2_detector.predict(
+                source=str(image_path),
+                conf=float(self.btl2_inference_conf),
+                imgsz=int(self.btl2_inference_imgsz),
+                device=requested_device,
+                verbose=False,
+            )
+        except RuntimeError as exc:
+            if requested_device == "mps" and self._is_mps_oom_error(exc):
+                self._clear_mps_cache()
+                used_device = "cpu"
+                self.btl2_inference_device = "cpu"
+                self.btl2_inference_status = "MPS out of memory, retrying inference on CPU..."
+                results = self._btl2_detector.predict(
+                    source=str(image_path),
+                    conf=float(self.btl2_inference_conf),
+                    imgsz=int(self.btl2_inference_imgsz),
+                    device="cpu",
+                    verbose=False,
+                )
+            else:
+                raise
         if not results:
             raise RuntimeError("YOLO khong tra ve ket qua nao.")
 
@@ -1175,11 +1208,12 @@ class AppModel:
             "weights": self.btl2_detector_loaded_path,
             "detections": detections,
             "summary": summary,
-            "device": self.btl2_inference_device,
+            "device": used_device,
             "conf": float(self.btl2_inference_conf),
             "imgsz": int(self.btl2_inference_imgsz),
         }
-        self.btl2_inference_status = f"Done: inferred {image_path.name} with {detections} detection(s)."
+        fallback_note = " (MPS OOM -> CPU fallback)" if requested_device != used_device else ""
+        self.btl2_inference_status = f"Done: inferred {image_path.name} with {detections} detection(s){fallback_note}."
         return self.btl2_inference_last_result
 
     def _clear_scene_objects_for_btl2_preview(self) -> None:
