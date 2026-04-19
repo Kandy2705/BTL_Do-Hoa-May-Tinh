@@ -104,7 +104,15 @@ class AppController:
     def on_key(self, window, key, scancode, action, mods):
         # Dùng PRESS (nhấn) và REPEAT (giữ phím) để camera trượt mượt mà
         if action == glfw.PRESS or action == glfw.REPEAT:
-            if key == glfw.KEY_W:
+            if key in (glfw.KEY_DELETE, glfw.KEY_BACKSPACE) and action == glfw.PRESS:
+                try:
+                    import imgui
+                    if imgui.get_io().want_capture_keyboard:
+                        return
+                except Exception:
+                    pass
+                self._delete_scene_objects(list(self.model.scene.selected_objects))
+            elif key == glfw.KEY_W:
                 # W có 2 nghĩa:
                 # - nếu đang ở SGD thì đổi render mode của surface loss
                 # - nếu không thì đổi kiểu vẽ fill / wireframe / point
@@ -195,6 +203,52 @@ class AppController:
         self.coord_uma = UManager(self.coord_shader)
         
         self.coord_system.setup(self.coord_vao, self.coord_uma)
+
+    def _delete_scene_objects(self, objects):
+        """Delete one or many scene objects and keep UI-side indexes in sync."""
+        targets = []
+        seen_object_ids = set()
+        for obj in objects:
+            if obj not in self.model.scene.objects:
+                continue
+            if id(obj) in seen_object_ids:
+                continue
+            targets.append(obj)
+            seen_object_ids.add(id(obj))
+
+        if not targets:
+            return
+
+        deleted_scene_ids = {
+            scene_id for scene_id in (getattr(obj, "id", None) for obj in targets)
+            if scene_id is not None
+        }
+        self.model.scene.remove_objects(targets)
+
+        self.model.hierarchy_objects[:] = [
+            item for item in self.model.hierarchy_objects
+            if item.get("id") not in deleted_scene_ids
+        ]
+        if self.model.selected_hierarchy_idx >= len(self.model.hierarchy_objects):
+            self.model.select_hierarchy_object(-1)
+        elif self.model.selected_hierarchy_idx >= 0:
+            selected = self.model.hierarchy_objects[self.model.selected_hierarchy_idx]
+            if selected.get("id") in deleted_scene_ids:
+                self.model.select_hierarchy_object(-1)
+
+        if hasattr(self.model, "chemistry_object_ids"):
+            self.model.chemistry_object_ids.difference_update(deleted_scene_ids)
+            self.model.chemistry_electron_states = [
+                state for state in self.model.chemistry_electron_states
+                if state.get("electron_id") not in deleted_scene_ids
+            ]
+            self.model.chemistry_rotating_states = [
+                state for state in self.model.chemistry_rotating_states
+                if state.get("object_id") not in deleted_scene_ids
+            ]
+
+        names = ", ".join(getattr(obj, "name", "object") for obj in targets)
+        print(f"Deleted {len(targets)} object(s): {names}")
 
     def _process_ui_actions(self, actions):
         """Process UI actions and update model accordingly"""
@@ -384,11 +438,10 @@ class AppController:
             self.model.scene.clear_selection()
             
         if 'delete_object' in actions:
-            obj_to_delete = actions['delete_object']
-            self.model.scene.remove_object(obj_to_delete)
-            if obj_to_delete in self.model.scene.selected_objects:
-                self.model.scene.selected_objects.remove(obj_to_delete)
-            print(f"Deleted object: {obj_to_delete.name}")
+            self._delete_scene_objects([actions['delete_object']])
+
+        if 'delete_objects' in actions:
+            self._delete_scene_objects(actions['delete_objects'])
             
         # Thêm đoạn này vào để cập nhật tự động TẤT CẢ các loại thuộc tính (FOV, Color, Intensity...)
         if 'update_attr' in actions:

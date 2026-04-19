@@ -72,6 +72,14 @@ class HierarchyPanel:
                     imgui.end_menu()
                 imgui.end_popup()
         
+        selected_count = len(model.scene.selected_objects)
+        if selected_count > 0:
+            imgui.text_disabled(f"Selected: {selected_count}")
+            if selected_count > 1:
+                imgui.same_line()
+                if imgui.button(f"Delete Selected ({selected_count})"):
+                    actions['delete_objects'] = list(model.scene.selected_objects)
+
         if imgui.tree_node("MainScene", imgui.TREE_NODE_DEFAULT_OPEN):
             for i, obj in enumerate(model.scene.objects):
                 is_selected = obj in model.scene.selected_objects
@@ -88,8 +96,16 @@ class HierarchyPanel:
                 
                 # Right-click context menu for each object
                 if imgui.begin_popup_context_item(f"obj_menu_{obj.id}"):
-                    if imgui.menu_item("Delete")[0]:
-                        actions['delete_object'] = obj
+                    delete_targets = [obj]
+                    if is_selected and len(model.scene.selected_objects) > 1:
+                        delete_targets = list(model.scene.selected_objects)
+                    delete_label = (
+                        f"Delete Selected ({len(delete_targets)})"
+                        if len(delete_targets) > 1
+                        else "Delete"
+                    )
+                    if imgui.menu_item(delete_label)[0]:
+                        actions['delete_objects'] = delete_targets
                     imgui.end_popup()
             
             imgui.tree_pop()
