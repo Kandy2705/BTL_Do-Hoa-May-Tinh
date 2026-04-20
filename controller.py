@@ -708,10 +708,25 @@ class AppController:
                 self.model.btl2_inference_status = f"Failed: {exc}"
                 print(self.model.btl2_inference_status)
 
+        if 'btl2_run_roboflow_inference' in actions:
+            try:
+                self.model.btl2_inference_status = "Running: Roboflow Workflow inference in progress..."
+                result = self.model.run_btl2_roboflow_inference()
+                print(
+                    "Roboflow inference OK:",
+                    f"detections={result.get('detections', 0)},",
+                    f"preview={result.get('preview', '')}",
+                    f"csv={result.get('csv', '')}",
+                )
+            except Exception as exc:
+                self.model.btl2_inference_status = f"Failed: {exc}"
+                print(self.model.btl2_inference_status)
+
     def _browse_file_dialog(self, prompt: str):
         """Open a native macOS file dialog and return the chosen path or None."""
         import platform
         import subprocess
+        import os
 
         if platform.system() != "Darwin":
             print("Tính năng chọn file hiện chỉ hỗ trợ giao diện native trên macOS.")
@@ -722,11 +737,21 @@ class AppController:
             try
                 set chosen_file to choose file with prompt "{prompt}"
                 POSIX path of chosen_file
+            on error
+                return "CANCELLED"
             end try
             '''
             result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+            filename = result.stdout.strip()
+            
+            if not filename or filename == "CANCELLED":
+                return None
+                
+            if not os.path.exists(filename):
+                print(f"File not found: {filename}")
+                return None
+                
+            return filename
         except Exception as exc:
             print(f"Lỗi khi mở hộp thoại Mac: {exc}")
         return None

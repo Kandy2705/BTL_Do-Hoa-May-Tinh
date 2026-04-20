@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
 
 import numpy as np
@@ -49,11 +50,20 @@ class GLMesh:
     ebo: int
     index_count: int
     texture_id: int | None = None
+    material_groups: list[dict] | None = None
+    material_texture_ids: dict[str, int] | None = None
 
     def draw(self) -> None:
         """Issue the indexed draw call for this mesh."""
         glBindVertexArray(self.vao)
         glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, None)
+
+    def draw_range(self, start: int, count: int) -> None:
+        """Draw a contiguous index range, used for OBJ material groups."""
+        if count <= 0:
+            return
+        glBindVertexArray(self.vao)
+        glDrawElements(GL_TRIANGLES, int(count), GL_UNSIGNED_INT, ctypes.c_void_p(int(start) * 4))
 
 
 def _load_texture(texture_path) -> int | None:
@@ -105,7 +115,25 @@ def upload_mesh(mesh: MeshData) -> GLMesh:
     glEnableVertexAttribArray(2)
     glVertexAttribPointer(2, 2, GL_FLOAT, False, stride, ctypes.c_void_p(24))
     glBindVertexArray(0)
-    return GLMesh(vao=vao, vbo=vbo, ebo=ebo, index_count=int(mesh.indices.size), texture_id=_load_texture(mesh.texture_path))
 
+    texture_id = _load_texture(mesh.texture_path)
+    material_texture_ids: dict[str, int] = {}
+    for material_name, material_texture_path in (mesh.material_texture_paths or {}).items():
+        if texture_id is not None and material_texture_path == mesh.texture_path:
+            material_texture_ids[material_name] = texture_id
+            continue
+        material_texture_id = _load_texture(material_texture_path)
+        if material_texture_id is not None:
+            material_texture_ids[material_name] = material_texture_id
+    if texture_id is None and material_texture_ids:
+        texture_id = next(iter(material_texture_ids.values()))
 
-import ctypes  # noqa: E402  # Imported late so pointer helper sits near usage.
+    return GLMesh(
+        vao=vao,
+        vbo=vbo,
+        ebo=ebo,
+        index_count=int(mesh.indices.size),
+        texture_id=texture_id,
+        material_groups=mesh.material_groups,
+        material_texture_ids=material_texture_ids or None,
+    )

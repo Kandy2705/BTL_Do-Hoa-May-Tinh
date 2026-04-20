@@ -7,6 +7,252 @@ import imgui
 class BTL2Panel:
     """BTL2 workflow panel: source -> config -> validate -> generate -> result."""
 
+    IMAGE_VIEWER_POPUP = "BTL2 Image Preview##btl2_image_viewer"
+
+    @staticmethod
+    def _vec2_xy(value, default=(0.0, 0.0)):
+        if value is None:
+            return default
+        if hasattr(value, "x") and hasattr(value, "y"):
+            return float(value.x), float(value.y)
+        try:
+            return float(value[0]), float(value[1])
+        except (TypeError, IndexError, ValueError):
+            return default
+
+    @staticmethod
+    def _clamp(value, min_value, max_value):
+        return max(min_value, min(max_value, value))
+
+    @staticmethod
+    def _image_viewer_state(model):
+        state = getattr(model, "btl2_image_viewer_state", None)
+        if not isinstance(state, dict):
+            state = {
+                "request_open": False,
+                "title": "",
+                "path": "",
+                "texture_id": None,
+                "width": 1.0,
+                "height": 1.0,
+                "zoom": 1.0,
+                "offset_x": 0.0,
+                "offset_y": 0.0,
+                "fit_next": True,
+            }
+            model.btl2_image_viewer_state = state
+        return state
+
+    @staticmethod
+    def _open_image_viewer(model, title, image_path, preview):
+        state = BTL2Panel._image_viewer_state(model)
+        state.update(
+            {
+                "request_open": True,
+                "title": title,
+                "path": image_path or preview.get("path", ""),
+                "texture_id": preview.get("texture_id"),
+                "width": max(float(preview.get("width", 1)), 1.0),
+                "height": max(float(preview.get("height", 1)), 1.0),
+                "zoom": 1.0,
+                "offset_x": 0.0,
+                "offset_y": 0.0,
+                "fit_next": True,
+            }
+        )
+
+    @staticmethod
+    def _draw_clickable_preview(model, preview, title, image_path, widget_id):
+        if not preview or not preview.get("texture_id"):
+            return
+
+        texture_id = preview["texture_id"]
+        width = max(float(preview.get("width", 1)), 1.0)
+        height = max(float(preview.get("height", 1)), 1.0)
+        available_width = max(imgui.get_window_width() - 36.0, 120.0)
+        display_width = min(available_width, width)
+        display_height = display_width * (height / width)
+
+        imgui.text_disabled("Click image to zoom / inspect.")
+        imgui.push_id(widget_id)
+        clicked = imgui.image_button(
+            texture_id,
+            display_width,
+            display_height,
+            frame_padding=1,
+            border_color=(0.18, 0.52, 0.82, 0.70),
+        )
+        if clicked:
+            BTL2Panel._open_image_viewer(model, title, image_path, preview)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Open large preview")
+        imgui.pop_id()
+
+    @staticmethod
+    def _fit_zoom(width, height, canvas_w, canvas_h):
+        fit = min(canvas_w / max(width, 1.0), canvas_h / max(height, 1.0))
+        return BTL2Panel._clamp(min(fit, 1.0), 0.02, 10.0)
+
+    @staticmethod
+    def _clamp_pan(state, canvas_w, canvas_h, scaled_w, scaled_h):
+        if scaled_w <= canvas_w:
+            state["offset_x"] = 0.0
+        else:
+            limit_x = (scaled_w - canvas_w) * 0.5
+            state["offset_x"] = BTL2Panel._clamp(float(state.get("offset_x", 0.0)), -limit_x, limit_x)
+
+        if scaled_h <= canvas_h:
+            state["offset_y"] = 0.0
+        else:
+            limit_y = (scaled_h - canvas_h) * 0.5
+            state["offset_y"] = BTL2Panel._clamp(float(state.get("offset_y", 0.0)), -limit_y, limit_y)
+
+    @staticmethod
+    def _zoom_image_viewer(state, new_zoom, canvas_pos=None, canvas_size=None, mouse_pos=None):
+        old_zoom = max(float(state.get("zoom", 1.0)), 0.02)
+        new_zoom = BTL2Panel._clamp(float(new_zoom), 0.02, 10.0)
+        if abs(new_zoom - old_zoom) < 1e-6:
+            return
+
+        if canvas_pos and canvas_size and mouse_pos:
+            canvas_x, canvas_y = canvas_pos
+            canvas_w, canvas_h = canvas_size
+            mouse_x, mouse_y = mouse_pos
+            center_x = canvas_x + canvas_w * 0.5
+            center_y = canvas_y + canvas_h * 0.5
+            rel_x = mouse_x - center_x
+            rel_y = mouse_y - center_y
+            offset_x = float(state.get("offset_x", 0.0))
+            offset_y = float(state.get("offset_y", 0.0))
+            scale = new_zoom / old_zoom
+            state["offset_x"] = rel_x - ((rel_x - offset_x) * scale)
+            state["offset_y"] = rel_y - ((rel_y - offset_y) * scale)
+
+        state["zoom"] = new_zoom
+
+    @staticmethod
+    def _draw_image_viewer_modal(model):
+        state = BTL2Panel._image_viewer_state(model)
+        if state.pop("request_open", False):
+            imgui.open_popup(BTL2Panel.IMAGE_VIEWER_POPUP)
+
+        io = imgui.get_io()
+        display_w, display_h = BTL2Panel._vec2_xy(getattr(io, "display_size", None), (1280.0, 720.0))
+        modal_w = BTL2Panel._clamp(display_w * 0.78, 640.0, max(display_w - 40.0, 640.0))
+        modal_h = BTL2Panel._clamp(display_h * 0.82, 460.0, max(display_h - 40.0, 460.0))
+        imgui.set_next_window_position(display_w * 0.5, display_h * 0.5, pivot_x=0.5, pivot_y=0.5)
+        imgui.set_next_window_size(modal_w, modal_h)
+
+        flags = imgui.WINDOW_NO_COLLAPSE
+        popup = imgui.begin_popup_modal(BTL2Panel.IMAGE_VIEWER_POPUP, True, flags=flags)
+        if not popup.opened:
+            return
+
+        texture_id = state.get("texture_id")
+        width = max(float(state.get("width", 1.0)), 1.0)
+        height = max(float(state.get("height", 1.0)), 1.0)
+        zoom = max(float(state.get("zoom", 1.0)), 0.02)
+
+        imgui.text(state.get("title", "Image Preview"))
+        image_path = state.get("path", "")
+        if image_path:
+            imgui.text_wrapped(image_path)
+
+        if imgui.button("Fit"):
+            state["fit_next"] = True
+        imgui.same_line()
+        if imgui.button("100%"):
+            state["zoom"] = 1.0
+            state["offset_x"] = 0.0
+            state["offset_y"] = 0.0
+        imgui.same_line()
+        if imgui.button("-"):
+            BTL2Panel._zoom_image_viewer(state, zoom / 1.25)
+        imgui.same_line()
+        if imgui.button("+"):
+            BTL2Panel._zoom_image_viewer(state, zoom * 1.25)
+        imgui.same_line()
+        changed_zoom, slider_zoom = imgui.slider_float("Zoom", float(state.get("zoom", 1.0)), 0.02, 10.0, "%.2fx")
+        if changed_zoom:
+            BTL2Panel._zoom_image_viewer(state, slider_zoom)
+        imgui.same_line()
+        if imgui.button("Close") or imgui.is_key_pressed(imgui.KEY_ESCAPE):
+            imgui.close_current_popup()
+
+        imgui.text_disabled("Drag to pan. Mouse wheel over the image zooms in/out.")
+        imgui.separator()
+
+        avail_w, avail_h = BTL2Panel._vec2_xy(imgui.get_content_region_available(), (modal_w - 30.0, modal_h - 130.0))
+        canvas_w = max(avail_w, 160.0)
+        canvas_h = max(avail_h, 160.0)
+
+        imgui.begin_child(
+            "##btl2_image_viewer_canvas",
+            canvas_w,
+            canvas_h,
+            border=True,
+            flags=imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_SCROLL_WITH_MOUSE,
+        )
+
+        canvas_x, canvas_y = BTL2Panel._vec2_xy(imgui.get_cursor_screen_pos())
+        imgui.invisible_button("##btl2_image_canvas_hitbox", canvas_w, canvas_h)
+        hovered = imgui.is_item_hovered()
+        active = imgui.is_item_active()
+
+        fit_zoom = BTL2Panel._fit_zoom(width, height, canvas_w, canvas_h)
+        if state.pop("fit_next", False):
+            state["zoom"] = fit_zoom
+            state["offset_x"] = 0.0
+            state["offset_y"] = 0.0
+
+        zoom = max(float(state.get("zoom", fit_zoom)), 0.02)
+        if hovered:
+            wheel = float(getattr(io, "mouse_wheel", 0.0))
+            if abs(wheel) > 1e-6:
+                mouse_x, mouse_y = BTL2Panel._vec2_xy(imgui.get_mouse_pos())
+                BTL2Panel._zoom_image_viewer(
+                    state,
+                    zoom * (1.12 ** wheel),
+                    canvas_pos=(canvas_x, canvas_y),
+                    canvas_size=(canvas_w, canvas_h),
+                    mouse_pos=(mouse_x, mouse_y),
+                )
+                zoom = max(float(state.get("zoom", zoom)), 0.02)
+
+        scaled_w = width * zoom
+        scaled_h = height * zoom
+        if imgui.is_item_clicked(0):
+            state["drag_start_x"] = float(state.get("offset_x", 0.0))
+            state["drag_start_y"] = float(state.get("offset_y", 0.0))
+        if active and imgui.is_mouse_dragging(0):
+            drag_x, drag_y = BTL2Panel._vec2_xy(imgui.get_mouse_drag_delta(0))
+            state["offset_x"] = float(state.get("drag_start_x", 0.0)) + drag_x
+            state["offset_y"] = float(state.get("drag_start_y", 0.0)) + drag_y
+
+        BTL2Panel._clamp_pan(state, canvas_w, canvas_h, scaled_w, scaled_h)
+        image_x = canvas_x + (canvas_w - scaled_w) * 0.5 + float(state.get("offset_x", 0.0))
+        image_y = canvas_y + (canvas_h - scaled_h) * 0.5 + float(state.get("offset_y", 0.0))
+
+        draw_list = imgui.get_window_draw_list()
+        draw_list.add_rect_filled(
+            canvas_x,
+            canvas_y,
+            canvas_x + canvas_w,
+            canvas_y + canvas_h,
+            imgui.get_color_u32_rgba(0.10, 0.10, 0.10, 1.0),
+        )
+        if texture_id:
+            draw_list.push_clip_rect(canvas_x, canvas_y, canvas_x + canvas_w, canvas_y + canvas_h, True)
+            draw_list.add_image(
+                texture_id,
+                (image_x, image_y),
+                (image_x + scaled_w, image_y + scaled_h),
+            )
+            draw_list.pop_clip_rect()
+
+        imgui.end_child()
+        imgui.end_popup()
+
     @staticmethod
     def _status_meta(status_text):
         text = (status_text or "").strip()
@@ -208,14 +454,13 @@ class BTL2Panel:
         if preview_path:
             imgui.text_wrapped(f"Preview file: {preview_path}")
 
-        if dataset_preview and dataset_preview.get("texture_id"):
-            texture_id = dataset_preview["texture_id"]
-            width = max(float(dataset_preview.get("width", 1)), 1.0)
-            height = max(float(dataset_preview.get("height", 1)), 1.0)
-            available_width = max(imgui.get_window_width() - 36.0, 120.0)
-            display_width = min(available_width, width)
-            display_height = display_width * (height / width)
-            imgui.image(texture_id, display_width, display_height)
+        BTL2Panel._draw_clickable_preview(
+            model,
+            dataset_preview,
+            "Dataset Preview",
+            preview_path,
+            "dataset_preview",
+        )
 
         imgui.separator()
         imgui.text("6) YOLO Inference")
@@ -228,6 +473,104 @@ class BTL2Panel:
         imgui.text(inf_status_name)
         imgui.pop_style_color()
         imgui.text_wrapped(inf_status_text)
+
+        current_backend = getattr(model, "btl2_inference_backend", "local_yolo")
+        imgui.text("Backend")
+        if current_backend == "local_yolo":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.20, 0.55, 0.90)
+        if imgui.button("Local YOLO"):
+            model.btl2_inference_backend = "local_yolo"
+            model.btl2_inference_status = "Selected backend: Local YOLO."
+        if current_backend == "local_yolo":
+            imgui.pop_style_color()
+        imgui.same_line()
+        if current_backend == "roboflow":
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.20, 0.70, 0.35)
+        if imgui.button("Roboflow Workflow"):
+            model.btl2_inference_backend = "roboflow"
+            model.btl2_inference_status = "Selected backend: Roboflow Workflow."
+        if current_backend == "roboflow":
+            imgui.pop_style_color()
+
+        if getattr(model, "btl2_inference_backend", "local_yolo") == "roboflow":
+            imgui.text_wrapped("Roboflow uses inference-sdk and sends the selected image to your configured Workflow.")
+            changed_url, new_url = imgui.input_text(
+                "API URL##roboflow",
+                getattr(model, "btl2_roboflow_api_url", "https://detect.roboflow.com"),
+                256,
+            )
+            if changed_url:
+                model.btl2_roboflow_api_url = new_url
+            changed_key, new_key = imgui.input_text(
+                "API Key##roboflow",
+                getattr(model, "btl2_roboflow_api_key", ""),
+                256,
+            )
+            if changed_key:
+                model.btl2_roboflow_api_key = new_key
+            changed_workspace, new_workspace = imgui.input_text(
+                "Workspace##roboflow",
+                getattr(model, "btl2_roboflow_workspace", ""),
+                256,
+            )
+            if changed_workspace:
+                model.btl2_roboflow_workspace = new_workspace
+            changed_workflow, new_workflow = imgui.input_text(
+                "Workflow ID##roboflow",
+                getattr(model, "btl2_roboflow_workflow_id", ""),
+                256,
+            )
+            if changed_workflow:
+                model.btl2_roboflow_workflow_id = new_workflow
+
+            changed_image, new_image = imgui.input_text(
+                "Image file##roboflow",
+                getattr(model, "btl2_inference_image_path", ""),
+                512,
+            )
+            if changed_image:
+                model.btl2_inference_image_path = new_image
+            if imgui.button("Use Sample Image##roboflow"):
+                actions["btl2_pick_sample_image"] = True
+            imgui.same_line()
+            if imgui.button("Browse Image##roboflow"):
+                actions["btl2_browse_image"] = True
+
+            changed_conf, new_conf = imgui.slider_float(
+                "Min Confidence##roboflow",
+                float(getattr(model, "btl2_inference_conf", 0.25)),
+                0.01,
+                0.90,
+            )
+            if changed_conf:
+                model.btl2_inference_conf = new_conf
+
+            if imgui.button("Run Roboflow Workflow"):
+                actions["btl2_run_roboflow_inference"] = True
+
+            json_path = getattr(model, "btl2_roboflow_last_json_path", "")
+            csv_path = getattr(model, "btl2_roboflow_last_csv_path", "")
+            if json_path:
+                imgui.text_wrapped(f"JSON: {json_path}")
+            if csv_path:
+                imgui.text_wrapped(f"CSV: {csv_path}")
+            summary = getattr(model, "btl2_inference_summary", "")
+            if summary:
+                imgui.text_wrapped(f"Detections: {summary}")
+            preview_path = getattr(model, "btl2_inference_preview_path", "")
+            if preview_path:
+                imgui.text_wrapped(f"Preview: {preview_path}")
+            BTL2Panel._draw_clickable_preview(
+                model,
+                inference_preview,
+                "Roboflow Inference Preview",
+                preview_path,
+                "roboflow_inference_preview",
+            )
+
+            BTL2Panel._draw_image_viewer_modal(model)
+            imgui.end()
+            return actions
 
         changed_weight, new_weight = imgui.input_text(
             "Weight file",
@@ -338,14 +681,14 @@ class BTL2Panel:
         if preview_path:
             imgui.text_wrapped(f"Preview: {preview_path}")
 
-        if inference_preview and inference_preview.get("texture_id"):
-            texture_id = inference_preview["texture_id"]
-            width = max(float(inference_preview.get("width", 1)), 1.0)
-            height = max(float(inference_preview.get("height", 1)), 1.0)
-            available_width = max(imgui.get_window_width() - 36.0, 120.0)
-            display_width = min(available_width, width)
-            display_height = display_width * (height / width)
-            imgui.image(texture_id, display_width, display_height)
+        BTL2Panel._draw_clickable_preview(
+            model,
+            inference_preview,
+            "YOLO Inference Preview",
+            preview_path,
+            "local_inference_preview",
+        )
 
+        BTL2Panel._draw_image_viewer_modal(model)
         imgui.end()
         return actions

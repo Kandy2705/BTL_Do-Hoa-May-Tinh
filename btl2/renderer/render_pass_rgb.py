@@ -69,6 +69,21 @@ class RGBRenderPass:
         brightness, saturation = self._texture_adjustment(obj)
         self.shader.set_float("u_texture_brightness", brightness)
         self.shader.set_float("u_texture_saturation", saturation)
+        if mesh.material_groups and mesh.material_texture_ids:
+            drew_group = False
+            for group in mesh.material_groups:
+                texture_id = mesh.material_texture_ids.get(group.get("material"))
+                self.shader.set_int("u_use_texture", 1 if texture_id is not None else 0)
+                if texture_id is not None:
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, texture_id)
+                else:
+                    glBindTexture(GL_TEXTURE_2D, 0)
+                mesh.draw_range(int(group.get("start", 0)), int(group.get("count", 0)))
+                drew_group = True
+            if drew_group:
+                return
+
         if use_texture:
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, mesh.texture_id)

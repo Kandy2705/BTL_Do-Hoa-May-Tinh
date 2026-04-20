@@ -20,6 +20,8 @@ class MeshData:
     aabb: AABB
     texcoords: np.ndarray | None = None
     texture_path: Path | None = None
+    material_groups: list[dict] | None = None
+    material_texture_paths: dict[str, Path] | None = None
 
 
 class ObjectLoader:
@@ -63,10 +65,12 @@ class ObjectLoader:
         texcoords_out: list[list[float]] = []
         normals_out: list[list[float]] = []
         indices_out: list[int] = []
-        vertex_map: dict[tuple[int, int | None, int | None], int] = {}
+        vertex_map: dict[tuple[int, int | None, int | None, str | None], int] = {}
         materials: dict[str, Path] = {}
         current_material: str | None = None
         texture_path: Path | None = None
+        material_groups: list[dict] = []
+        used_materials: list[str] = []
 
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
             for raw_line in handle:
@@ -89,6 +93,8 @@ class ObjectLoader:
                     materials.update(self._load_mtl_textures(mtl_path))
                 elif head == "usemtl":
                     current_material = " ".join(parts[1:]) if len(parts) > 1 else None
+                    if current_material and current_material not in used_materials:
+                        used_materials.append(current_material)
                     if texture_path is None and current_material in materials:
                         texture_path = materials[current_material]
                 elif head == "f":
@@ -97,9 +103,17 @@ class ObjectLoader:
                         for token in parts[1:]
                     ]
                     triangles = self._triangulate_polygon(face_indices)
+                    if not material_groups or material_groups[-1]["material"] != current_material:
+                        material_groups.append(
+                            {
+                                "material": current_material,
+                                "start": len(indices_out),
+                                "count": 0,
+                            }
+                        )
                     for tri in triangles:
                         for pos_idx, tex_idx, norm_idx in tri:
-                            cache_key = (pos_idx, tex_idx, norm_idx)
+                            cache_key = (pos_idx, tex_idx, norm_idx, current_material)
                             if cache_key not in vertex_map:
                                 vertex_map[cache_key] = len(vertices_out)
                                 vertices_out.append(positions[pos_idx])
@@ -112,11 +126,23 @@ class ObjectLoader:
                                 else:
                                     normals_out.append([0.0, 1.0, 0.0])
                             indices_out.append(vertex_map[cache_key])
+                            material_groups[-1]["count"] += 1
 
         if texture_path is None:
             texture_path = self._guess_folder_texture_path(path.parent)
 
-        return self._finalize_mesh(vertices_out, normals_out, indices_out, texcoords_out, source_path=path, texture_path=texture_path)
+        material_texture_paths = {name: materials[name] for name in used_materials if name in materials}
+        material_groups = [group for group in material_groups if int(group.get("count", 0)) > 0]
+        return self._finalize_mesh(
+            vertices_out,
+            normals_out,
+            indices_out,
+            texcoords_out,
+            source_path=path,
+            texture_path=texture_path,
+            material_groups=material_groups,
+            material_texture_paths=material_texture_paths,
+        )
 
     @staticmethod
     def _load_mtl_textures(path: Path) -> dict[str, Path]:
@@ -342,6 +368,8 @@ class ObjectLoader:
         texcoords: list[list[float]] | None = None,
         source_path: Path | None = None,
         texture_path: Path | None = None,
+        material_groups: list[dict] | None = None,
+        material_texture_paths: dict[str, Path] | None = None,
     ) -> MeshData:
         """Convert parsed mesh lists to NumPy arrays and build the AABB."""
         if not vertices or not indices:
@@ -362,6 +390,8 @@ class ObjectLoader:
             AABB(vertices_np.min(axis=0), vertices_np.max(axis=0)),
             texcoords=texcoords_np,
             texture_path=texture_path,
+            material_groups=material_groups or None,
+            material_texture_paths=material_texture_paths or None,
         )
 
     @staticmethod

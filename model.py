@@ -255,10 +255,17 @@ class AppModel:
         self.btl2_inference_preview_path: str = ""
         self.btl2_inference_status: str = "Idle: chua load detector."
         self.btl2_inference_summary: str = ""
+        self.btl2_inference_backend: str = "local_yolo"
         self.btl2_inference_device: str = self._detect_btl2_inference_device()
         self.btl2_inference_conf: float = 0.25
         self.btl2_inference_imgsz: int = 640
         self.btl2_inference_last_result: Dict[str, Any] = {}
+        self.btl2_roboflow_api_url: str = os.environ.get("ROBOFLOW_API_URL", "https://detect.roboflow.com")
+        self.btl2_roboflow_api_key: str = os.environ.get("ROBOFLOW_API_KEY", "")
+        self.btl2_roboflow_workspace: str = os.environ.get("ROBOFLOW_WORKSPACE", "")
+        self.btl2_roboflow_workflow_id: str = os.environ.get("ROBOFLOW_WORKFLOW_ID", "")
+        self.btl2_roboflow_last_json_path: str = ""
+        self.btl2_roboflow_last_csv_path: str = ""
         self._btl2_detector: Optional[Any] = None
         self.refresh_btl2_preview()
 
@@ -1215,6 +1222,102 @@ class AppModel:
         }
         fallback_note = " (MPS OOM -> CPU fallback)" if requested_device != used_device else ""
         self.btl2_inference_status = f"Done: inferred {image_path.name} with {detections} detection(s){fallback_note}."
+        return self.btl2_inference_last_result
+
+    def run_btl2_roboflow_inference(self) -> Dict[str, Any]:
+        from btl2.inference.roboflow_workflow import (
+            append_csv_rows,
+            draw_predictions,
+            extract_predictions,
+            run_workflow,
+            run_inference,
+            save_first_annotated_image,
+            save_json,
+        )
+
+        image_path = Path(self.btl2_inference_image_path).expanduser()
+        if not image_path.is_absolute():
+            image_path = Path.cwd() / image_path
+        if not image_path.exists():
+            raise FileNotFoundError(f"Khong tim thay anh de inference: {image_path}")
+
+        api_key = self.btl2_roboflow_api_key.strip() or os.environ.get("ROBOFLOW_API_KEY", "")
+        workspace = self.btl2_roboflow_workspace.strip() or os.environ.get("ROBOFLOW_WORKSPACE", "")
+        model_id = self.btl2_roboflow_workflow_id.strip() or os.environ.get("ROBOFLOW_WORKFLOW_ID", "")
+        api_url = self.btl2_roboflow_api_url.strip() or os.environ.get("ROBOFLOW_API_URL", "https://detect.roboflow.com")
+        if not api_key:
+            raise ValueError("Thieu Roboflow API key. Nhap trong UI hoac set ROBOFLOW_API_KEY.")
+        if not workspace:
+            raise ValueError("Thieu Roboflow workspace. Nhap trong UI hoac set ROBOFLOW_WORKSPACE.")
+        if not model_id:
+            raise ValueError("Thieu Roboflow model id. Nhap trong UI hoac set ROBOFLOW_WORKFLOW_ID.")
+
+        # Try direct inference first (more stable), fallback to workflow
+        try:
+            payload = run_inference(
+                api_url=api_url,
+                api_key=api_key,
+                workspace_name=workspace,
+                model_id=model_id,
+                image_path=image_path,
+            )
+        except Exception as workflow_err:
+            # Fallback to workflow if direct inference fails
+            print(f"Direct inference failed: {workflow_err}, trying workflow...")
+            try:
+                payload = run_workflow(
+                    api_url=api_url,
+                    api_key=api_key,
+                    workspace_name=workspace,
+                    workflow_id=model_id,
+                    image_path=image_path,
+                )
+            except Exception as wf_err:
+                raise RuntimeError(f"Ca both inference methods failed. Direct: {workflow_err}, Workflow: {wf_err}")
+
+        output_dir = Path("outputs/inference/roboflow")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        json_path = save_json(payload, output_dir / f"{image_path.stem}_roboflow.json")
+        predictions = extract_predictions(
+            payload,
+            image_name=image_path.name,
+            min_confidence=float(self.btl2_inference_conf),
+        )
+        csv_path = append_csv_rows(output_dir / "roboflow_detections.csv", predictions)
+
+        preview_dir = Path("outputs/inference/ui")
+        preview_path = preview_dir / f"{image_path.stem}_roboflow_pred.jpg"
+        if save_first_annotated_image(payload, preview_path) is None:
+            preview_path = draw_predictions(image_path, predictions, preview_path)
+
+        if predictions:
+            counts = Counter(pred.class_name or str(pred.class_id) for pred in predictions)
+            summary = ", ".join(f"{name} x{count}" for name, count in sorted(counts.items()))
+        else:
+            summary = "No detections."
+
+        self.btl2_inference_backend = "roboflow"
+        self.btl2_inference_preview_path = str(preview_path)
+        self.btl2_inference_summary = summary
+        self.btl2_roboflow_last_json_path = str(json_path)
+        self.btl2_roboflow_last_csv_path = str(csv_path)
+        self.btl2_inference_last_result = {
+            "backend": "roboflow",
+            "image": str(image_path),
+            "preview": str(preview_path),
+            "json": str(json_path),
+            "csv": str(csv_path),
+            "detections": len(predictions),
+            "summary": summary,
+            "api_url": api_url,
+            "workspace": workspace,
+            "model_id": model_id,
+            "conf": float(self.btl2_inference_conf),
+        }
+        self.btl2_inference_status = (
+            f"Done: Roboflow workflow inferred {image_path.name} "
+            f"with {len(predictions)} detection(s)."
+        )
         return self.btl2_inference_last_result
 
     def _clear_scene_objects_for_btl2_preview(self) -> None:

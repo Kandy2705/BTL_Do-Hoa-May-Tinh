@@ -4,3 +4,4 @@ numpy>=1.26.0
 Pillow>=10.0.0
 PyYAML>=6.0.1
 ultralytics>=8.0.0
+inference-sdk>=0.52.0

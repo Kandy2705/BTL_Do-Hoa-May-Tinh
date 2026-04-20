@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logger = configure_logging()
     config = load_yaml(args.config)
-    if args.output_dir:
+    if getattr(args, "output_dir", None):
         config["output_dir"] = args.output_dir
     if getattr(args, "seed", None) is not None:
         config["seed"] = args.seed
