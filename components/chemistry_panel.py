@@ -25,8 +25,6 @@ class ChemistryPanel:
             flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE,
         )
 
-        imgui.text_wrapped("Bohr atom, H2O, CO2 bang sphere/cylinder/orbit va animation.")
-        imgui.separator()
 
         current = getattr(model, "chemistry_scene_kind", "none")
         imgui.text(f"Current scene: {current}")
@@ -68,11 +66,6 @@ class ChemistryPanel:
             actions["center_scene_for_demo"] = True
 
         imgui.separator()
-        imgui.text_wrapped("Checklist demo:")
-        imgui.bullet_text("Bohr: nucleus + electron + orbit")
-        imgui.bullet_text("H2O/CO2: atom=sphere, bond=cylinder")
-        imgui.bullet_text("Animation: electron quay / molecule xoay")
-        imgui.bullet_text("Scene graph metadata parent-child")
 
         if imgui.button("Close", 90, 24):
             actions["chemistry_hide_panel"] = True
