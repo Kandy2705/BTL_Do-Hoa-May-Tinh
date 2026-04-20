@@ -198,6 +198,8 @@ class AppModel:
         self.sgd_selected_preset = "Custom"
         self.sgd_hover_enabled = True
         self.sgd_hover_info = None
+        self.sgd_contour_zoom = 1.0
+        self.sgd_contour_center = [0.0, 0.0]
         self.sgd_wireframe_mode = 0  # 0: fill, 1: wireframe, 2: point
         self.sgd_optimizers_enabled = {
             'GD': True,

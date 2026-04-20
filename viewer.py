@@ -74,6 +74,7 @@ class Viewer:
                 "height": 0,
             },
         }
+        self._sgd_contour_lmb_active = False
 
         glfw.set_scroll_callback(self.win, self._on_scroll)
         glfw.set_cursor_pos_callback(self.win, self.on_mouse_move)
@@ -147,6 +148,9 @@ class Viewer:
         if imgui.get_io().want_capture_mouse:
             return
         if self._is_sgd_contour_locked():
+            mouse_pos = glfw.get_cursor_pos(window)
+            if self._is_mouse_in_scene_viewport(mouse_pos[0], mouse_pos[1]):
+                self._zoom_sgd_contour_at_mouse(mouse_pos, yoffset)
             return
         if self.scroll_callback: self.scroll_callback(window, xoffset, yoffset)
 
@@ -274,6 +278,8 @@ class Viewer:
             self.last_mouse_pos = (xpos, ypos)
             return
         if self._is_sgd_contour_locked():
+            if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS and self._sgd_contour_lmb_active:
+                self._pan_sgd_contour(xpos - self.last_mouse_pos[0], ypos - self.last_mouse_pos[1])
             self.last_mouse_pos = (xpos, ypos)
             return
         inside_viewport = self._is_mouse_in_scene_viewport(xpos, ypos)
@@ -318,12 +324,14 @@ class Viewer:
         if action == glfw.RELEASE:
             if button == glfw.MOUSE_BUTTON_LEFT:
                 self._scene_lmb_active = False
+                self._sgd_contour_lmb_active = False
                 self.gizmo.handle_mouse_release()
             elif button == glfw.MOUSE_BUTTON_RIGHT:
                 self._scene_rmb_active = False
         elif action == glfw.PRESS:
             if button == glfw.MOUSE_BUTTON_LEFT:
                 self._scene_lmb_active = inside_viewport
+                self._sgd_contour_lmb_active = inside_viewport and self._is_sgd_contour_locked()
             elif button == glfw.MOUSE_BUTTON_RIGHT:
                 self._scene_rmb_active = inside_viewport
 
@@ -428,7 +436,11 @@ class Viewer:
             return False
         return getattr(self.model, 'sgd_view_mode', '') in ('contour', 'interactive')
 
-    def _get_sgd_contour_camera(self, viewport_size):
+    @staticmethod
+    def _clamp(value, min_value, max_value):
+        return max(min_value, min(max_value, value))
+
+    def _get_sgd_contour_bounds(self, viewport_size, zoom=None, center=None):
         width, height = viewport_size
         aspect = max(width / max(height, 1), 1e-5)
         # Mặt contour thật sự chỉ nằm trong vùng x,y khoảng [-2, 2].
@@ -441,11 +453,74 @@ class Viewer:
             half_w = base_extent
             half_h = base_extent / aspect
 
-        projection = ortho(-half_w, half_w, -half_h, half_h, -20.0, 20.0)
+        zoom_value = float(zoom if zoom is not None else getattr(self.model, "sgd_contour_zoom", 1.0))
+        zoom_value = self._clamp(zoom_value, 0.35, 20.0)
+        half_w /= zoom_value
+        half_h /= zoom_value
+
+        if center is None:
+            center = getattr(self.model, "sgd_contour_center", [0.0, 0.0])
+        cx = float(center[0]) if len(center) > 0 else 0.0
+        cy = float(center[1]) if len(center) > 1 else 0.0
+        return cx - half_w, cx + half_w, cy - half_h, cy + half_h
+
+    def _get_sgd_contour_camera(self, viewport_size):
+        left, right, bottom, top = self._get_sgd_contour_bounds(viewport_size)
+        projection = ortho(left, right, bottom, top, -20.0, 20.0)
         view = lookat(np.array([0.0, 0.0, 18.0], dtype=np.float32),
                       np.array([0.0, 0.0, 0.0], dtype=np.float32),
                       np.array([0.0, 0.5, 0.0], dtype=np.float32))
         return view, projection
+
+    def _zoom_sgd_contour_at_mouse(self, mouse_pos, yoffset):
+        if not self.model:
+            return
+
+        win_w, win_h = glfw.get_window_size(self.win)
+        layout = self._layout_metrics(max(win_w, 800), max(win_h, 600))
+        vx, vy, vw, vh = layout["viewport_rect"]
+        if vw <= 0 or vh <= 0:
+            return
+
+        local_x = self._clamp((float(mouse_pos[0]) - vx) / vw, 0.0, 1.0)
+        local_y = self._clamp((float(mouse_pos[1]) - vy) / vh, 0.0, 1.0)
+        current_zoom = self._clamp(float(getattr(self.model, "sgd_contour_zoom", 1.0)), 0.35, 20.0)
+        old_left, old_right, old_bottom, old_top = self._get_sgd_contour_bounds((vw, vh), zoom=current_zoom)
+
+        anchor_x = old_left + local_x * (old_right - old_left)
+        anchor_y = old_top - local_y * (old_top - old_bottom)
+        new_zoom = self._clamp(current_zoom * (1.15 ** float(yoffset)), 0.35, 20.0)
+        new_left, new_right, new_bottom, new_top = self._get_sgd_contour_bounds((vw, vh), zoom=new_zoom, center=[0.0, 0.0])
+        new_half_w = (new_right - new_left) * 0.5
+        new_half_h = (new_top - new_bottom) * 0.5
+
+        center_x = anchor_x - (2.0 * local_x - 1.0) * new_half_w
+        center_y = anchor_y - (1.0 - 2.0 * local_y) * new_half_h
+        limit = 4.5
+        self.model.sgd_contour_zoom = new_zoom
+        self.model.sgd_contour_center = [
+            self._clamp(center_x, -limit, limit),
+            self._clamp(center_y, -limit, limit),
+        ]
+
+    def _pan_sgd_contour(self, dx, dy):
+        if not self.model:
+            return
+
+        win_w, win_h = glfw.get_window_size(self.win)
+        layout = self._layout_metrics(max(win_w, 800), max(win_h, 600))
+        _, _, vw, vh = layout["viewport_rect"]
+        if vw <= 0 or vh <= 0:
+            return
+
+        left, right, bottom, top = self._get_sgd_contour_bounds((vw, vh))
+        visible_w = right - left
+        visible_h = top - bottom
+        center = list(getattr(self.model, "sgd_contour_center", [0.0, 0.0]))
+        limit = 4.5
+        center[0] = self._clamp(float(center[0]) - float(dx) * visible_w / vw, -limit, limit)
+        center[1] = self._clamp(float(center[1]) + float(dy) * visible_h / vh, -limit, limit)
+        self.model.sgd_contour_center = center
 
     def _layout_metrics(self, win_w, win_h):
         is_btl2 = bool(self.model and self.model.selected_category == 6)
@@ -748,6 +823,17 @@ class Viewer:
         mode_text = "View: RGB" if getattr(model, 'display_mode', 0) == 0 else "View: Depth Map"
         if imgui.button(mode_text, 115, 22):
             actions['toggle_display_mode'] = True
+
+        if model.selected_category == 4 and getattr(model, 'sgd_view_mode', '') in ('contour', 'interactive'):
+            imgui.same_line()
+            if imgui.button("Fit Map", 70, 22):
+                actions['sgd_contour_fit'] = True
+            imgui.same_line()
+            if imgui.button("Zoom -", 70, 22):
+                actions['sgd_contour_zoom_out'] = True
+            imgui.same_line()
+            if imgui.button("Zoom +", 70, 22):
+                actions['sgd_contour_zoom_in'] = True
             
         imgui.end()
         imgui.pop_style_color()

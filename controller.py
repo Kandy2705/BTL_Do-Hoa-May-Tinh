@@ -289,6 +289,16 @@ class AppController:
             else:
                 self.view.reset_scene_camera()
                 print("Scene trong, da reset goc nhin ve mac dinh.")
+
+        if 'sgd_contour_fit' in actions:
+            self.model.sgd_contour_zoom = 1.0
+            self.model.sgd_contour_center = [0.0, 0.0]
+
+        if 'sgd_contour_zoom_in' in actions:
+            self.model.sgd_contour_zoom = min(float(getattr(self.model, 'sgd_contour_zoom', 1.0)) * 1.25, 20.0)
+
+        if 'sgd_contour_zoom_out' in actions:
+            self.model.sgd_contour_zoom = max(float(getattr(self.model, 'sgd_contour_zoom', 1.0)) / 1.25, 0.35)
         
         if 'shader_changed' in actions:
             self.model.set_shader(actions['shader_changed'])

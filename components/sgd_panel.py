@@ -346,6 +346,7 @@ class SGDPanel:
         imgui.text("- Space: Start/Stop")
         imgui.text("- R: Reset")
         imgui.text("- Combined view: nhin ca mat loss va contour")
+        imgui.text("- Contour Map: scroll tai vi tri chuot de zoom, keo chuot trai de pan")
 
         imgui.end()
         return actions
