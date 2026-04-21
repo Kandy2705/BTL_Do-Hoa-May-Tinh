@@ -20,8 +20,8 @@ class MainMenu:
             if imgui.begin_menu("BTL 1"):
                 if imgui.menu_item("Normal Mode")[0]:
                     actions['category_changed'] = 5
-                if imgui.menu_item("Center Scene For Demo")[0]:
-                    actions['center_scene_for_demo'] = True
+                # if imgui.menu_item("Center Scene For Demo")[0]:
+                #     actions['center_scene_for_demo'] = True
                 
                 imgui.separator()
                 

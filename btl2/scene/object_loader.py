@@ -1,4 +1,9 @@
-"""Mesh loading wrapper with procedural fallbacks."""
+"""Nạp mesh từ asset và tạo primitive fallback cho BTL 2.
+
+Scene builder chỉ cần nói class nào dùng asset nào; module này lo đọc OBJ/PLY,
+texture/material cơ bản, chuẩn hóa kích thước mesh và trả về `MeshData` trên CPU.
+Nếu thiếu asset, fallback primitive giúp pipeline vẫn render được để demo/test.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from btl2.utils.math3d import AABB
 
 @dataclass
 class MeshData:
-    """CPU-side mesh buffers and bounds used to upload geometry later."""
+    """Buffer mesh phía CPU, sẽ được upload lên GPU ở renderer."""
 
     vertices: np.ndarray
     normals: np.ndarray
@@ -25,14 +30,14 @@ class MeshData:
 
 
 class ObjectLoader:
-    """Load OBJ and simple ASCII PLY meshes, or fall back to primitives."""
+    """Nạp OBJ/PLY đơn giản hoặc thay bằng primitive khi asset không khả dụng."""
 
     def __init__(self, asset_root: str | Path) -> None:
         self.asset_root = Path(asset_root)
         self._cache: dict[str, MeshData] = {}
 
     def load_or_primitive(self, relative_path: str | None, primitive_name: str) -> MeshData:
-        """Try an external file first and use a procedural primitive on failure."""
+        """Ưu tiên nạp asset thật, nếu lỗi/thiếu thì dùng primitive thủ tục."""
         key = relative_path or primitive_name
         if key in self._cache:
             return self._cache[key]
@@ -41,6 +46,7 @@ class ObjectLoader:
         if relative_path:
             asset_path = self.asset_root / relative_path
             if asset_path.exists():
+                # Hiện pipeline chỉ cần hai format phổ biến trong bài: OBJ và ASCII PLY.
                 suffix = asset_path.suffix.lower()
                 if suffix == ".obj":
                     mesh = self._load_obj(asset_path)
@@ -57,7 +63,7 @@ class ObjectLoader:
         return mesh
 
     def _load_obj(self, path: Path) -> MeshData:
-        """Load a minimal subset of OBJ: v, vt, vn, mtllib/usemtl, and faces."""
+        """Nạp subset OBJ cần dùng: v, vt, vn, mtllib/usemtl và face."""
         positions: list[list[float]] = []
         texcoords: list[list[float]] = []
         normals: list[list[float]] = []
@@ -82,22 +88,27 @@ class ObjectLoader:
                 if head == "v":
                     positions.append([float(v) for v in parts[1:4]])
                 elif head == "vt":
+                    # UV có thể thiếu thành phần V trong một số file lỗi; mặc định 0.
                     u = float(parts[1]) if len(parts) > 1 else 0.0
                     v = float(parts[2]) if len(parts) > 2 else 0.0
                     texcoords.append([u, v])
                 elif head == "vn":
                     normals.append([float(v) for v in parts[1:4]])
                 elif head == "mtllib":
+                    # MTL chứa mapping material -> diffuse texture (map_Kd).
                     mtl_name = " ".join(parts[1:])
                     mtl_path = Path(mtl_name) if Path(mtl_name).is_absolute() else path.parent / mtl_name
                     materials.update(self._load_mtl_textures(mtl_path))
                 elif head == "usemtl":
+                    # Ghi lại material hiện tại để chia index range theo texture.
                     current_material = " ".join(parts[1:]) if len(parts) > 1 else None
                     if current_material and current_material not in used_materials:
                         used_materials.append(current_material)
                     if texture_path is None and current_material in materials:
                         texture_path = materials[current_material]
                 elif head == "f":
+                    # OBJ face có thể là tam giác hoặc polygon nhiều đỉnh; renderer
+                    # chỉ vẽ GL_TRIANGLES nên cần triangulate.
                     face_indices = [
                         self._parse_obj_corner(token, len(positions), len(texcoords), len(normals))
                         for token in parts[1:]
@@ -113,6 +124,8 @@ class ObjectLoader:
                         )
                     for tri in triangles:
                         for pos_idx, tex_idx, norm_idx in tri:
+                            # Key gồm cả material để một vị trí dùng hai material khác
+                            # nhau có thể có vertex riêng nếu cần.
                             cache_key = (pos_idx, tex_idx, norm_idx, current_material)
                             if cache_key not in vertex_map:
                                 vertex_map[cache_key] = len(vertices_out)
@@ -129,6 +142,7 @@ class ObjectLoader:
                             material_groups[-1]["count"] += 1
 
         if texture_path is None:
+            # Nhiều asset tải về thiếu MTL hợp lệ nhưng vẫn để texture trong cùng thư mục.
             texture_path = self._guess_folder_texture_path(path.parent)
 
         material_texture_paths = {name: materials[name] for name in used_materials if name in materials}
@@ -146,7 +160,7 @@ class ObjectLoader:
 
     @staticmethod
     def _load_mtl_textures(path: Path) -> dict[str, Path]:
-        """Read diffuse texture references from an MTL file."""
+        """Đọc texture diffuse `map_Kd` từ file MTL."""
         textures: dict[str, Path] = {}
         if not path.exists():
             return textures
@@ -162,6 +176,7 @@ class ObjectLoader:
                 if key == "newmtl" and len(parts) > 1:
                     current_material = " ".join(parts[1:])
                 elif key == "map_kd" and current_material and len(parts) > 1:
+                    # Texture trong MTL thường là path tương đối so với chính file MTL.
                     texture_name = " ".join(parts[1:])
                     texture_path = Path(texture_name)
                     if not texture_path.is_absolute():
@@ -172,7 +187,7 @@ class ObjectLoader:
 
     @staticmethod
     def _guess_folder_texture_path(folder: Path) -> Path | None:
-        """Pick a likely diffuse/base-color texture from the OBJ folder."""
+        """Đoán texture diffuse/base-color phù hợp nhất trong thư mục OBJ."""
         if not folder.exists():
             return None
 
@@ -186,6 +201,8 @@ class ObjectLoader:
         preferred_tokens = ("basecolor", "base_color", "diffuse", "albedo", "color")
 
         def score(path: Path) -> tuple[int, str]:
+            # Ưu tiên base color/diffuse, né normal/roughness/metallic vì chúng không
+            # phải ảnh màu để dán trực tiếp trong RGB pass.
             stem = path.stem.lower()
             if any(token in stem for token in bad_tokens):
                 return (2, stem)
@@ -196,11 +213,12 @@ class ObjectLoader:
         return sorted(image_paths, key=score)[0].resolve()
 
     def _load_ply_ascii(self, path: Path) -> MeshData:
-        """Load a minimal ASCII PLY with vertex positions and face lists."""
+        """Nạp ASCII PLY tối giản gồm vertex position và danh sách face."""
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
             lines = [line.rstrip("\n") for line in handle]
 
         if not lines or lines[0] != "ply":
+            # Nếu file không đúng header PLY, fallback box để tránh crash pipeline.
             return self._primitive("box")
 
         vertex_count = 0
@@ -226,6 +244,7 @@ class ObjectLoader:
             values = [int(v) for v in line.split()]
             count = values[0]
             face = values[1 : 1 + count]
+            # PLY face cũng có thể nhiều hơn 3 đỉnh nên cần chia tam giác.
             for tri in self._triangulate_index_list(face):
                 indices.extend(tri)
 
@@ -233,9 +252,10 @@ class ObjectLoader:
 
     @staticmethod
     def _parse_obj_corner(token: str, num_positions: int, num_texcoords: int, num_normals: int) -> tuple[int, int | None, int | None]:
-        """Convert OBJ face corner syntax into zero-based indices."""
+        """Đổi cú pháp corner OBJ `v/vt/vn` thành index zero-based."""
         values = token.split("/")
         pos_idx = int(values[0])
+        # OBJ cho phép index âm để đếm ngược từ cuối danh sách vertex/uv/normal.
         pos_idx = pos_idx - 1 if pos_idx > 0 else num_positions + pos_idx
         tex_idx = None
         if len(values) >= 2 and values[1]:
@@ -249,22 +269,23 @@ class ObjectLoader:
 
     @staticmethod
     def _triangulate_polygon(face_indices: list[tuple[int, int | None, int | None]]) -> list[list[tuple[int, int | None, int | None]]]:
-        """Triangulate an OBJ face using a fan around the first vertex."""
+        """Chia polygon OBJ thành các tam giác kiểu fan quanh đỉnh đầu."""
         if len(face_indices) < 3:
             return []
         return [[face_indices[0], face_indices[i], face_indices[i + 1]] for i in range(1, len(face_indices) - 1)]
 
     @staticmethod
     def _triangulate_index_list(face: list[int]) -> list[list[int]]:
-        """Triangulate a list of vertex indices using a fan."""
+        """Chia danh sách index thành các tam giác kiểu fan."""
         if len(face) < 3:
             return []
         return [[face[0], face[i], face[i + 1]] for i in range(1, len(face) - 1)]
 
     def _primitive(self, primitive_name: str) -> MeshData:
-        """Return one of the built-in fallback meshes."""
+        """Trả về primitive fallback có sẵn."""
         primitive_name = primitive_name.lower()
         if primitive_name == "plane":
+            # Plane đơn vị nằm trên mặt XZ, dùng làm road khi thiếu model đường.
             vertices = np.array(
                 [
                     [-0.5, 0.0, -0.5],
@@ -293,7 +314,7 @@ class ObjectLoader:
         return self._build_box()
 
     def _build_box(self) -> MeshData:
-        """Create a centered unit box used for cars, signs, and lights."""
+        """Tạo box đơn vị ở tâm, dùng cho xe/biển báo/đèn khi thiếu asset."""
         vertices = np.array(
             [
                 [-0.5, -0.5, -0.5],
@@ -336,7 +357,7 @@ class ObjectLoader:
         return MeshData(vertices, normals, indices, AABB(vertices.min(axis=0), vertices.max(axis=0)), texcoords=texcoords)
 
     def _build_cylinder(self, segments: int = 16) -> MeshData:
-        """Create a simple vertical cylinder placeholder for person-class objects."""
+        """Tạo cylinder đứng đơn giản làm placeholder cho class person."""
         vertices: list[list[float]] = []
         normals: list[list[float]] = []
         indices: list[int] = []
@@ -371,8 +392,9 @@ class ObjectLoader:
         material_groups: list[dict] | None = None,
         material_texture_paths: dict[str, Path] | None = None,
     ) -> MeshData:
-        """Convert parsed mesh lists to NumPy arrays and build the AABB."""
+        """Chuyển list đã parse sang NumPy, sửa hướng asset và tạo AABB."""
         if not vertices or not indices:
+            # Mesh rỗng không render được; trả box để các bước sau vẫn có geometry.
             loader = ObjectLoader(".")
             return loader._build_box()
         vertices_np = np.asarray(vertices, dtype=np.float32)
@@ -381,6 +403,7 @@ class ObjectLoader:
         texcoords_np = np.asarray(texcoords, dtype=np.float32) if texcoords else np.zeros((vertices_np.shape[0], 2), dtype=np.float32)
         if texcoords_np.shape != (vertices_np.shape[0], 2):
             texcoords_np = np.zeros((vertices_np.shape[0], 2), dtype=np.float32)
+        # Một vài asset có hệ trục khác scene; sửa trước rồi mới normalize kích thước.
         vertices_np, normals_np = ObjectLoader._apply_source_orientation(vertices_np, normals_np, source_path)
         vertices_np = ObjectLoader._normalize_loaded_vertices(vertices_np)
         return MeshData(
@@ -400,7 +423,7 @@ class ObjectLoader:
         normals: np.ndarray,
         source_path: Path | None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Fix known asset coordinate systems before the mesh is normalized."""
+        """Sửa hệ trục cho asset đặc biệt trước khi normalize kích thước."""
         if source_path is None:
             return vertices, normals
 
@@ -410,14 +433,14 @@ class ObjectLoader:
 
         vertices = np.nan_to_num(vertices, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         normals = np.nan_to_num(normals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        # The bundled stoplight is authored Z-up; the rest of the scene is Y-up.
+        # Model stoplight đi kèm được dựng theo hệ Z-up; scene còn lại dùng Y-up.
         rotated_vertices = np.column_stack((vertices[:, 0], vertices[:, 2], -vertices[:, 1])).astype(np.float32)
         rotated_normals = np.column_stack((normals[:, 0], normals[:, 2], -normals[:, 1])).astype(np.float32)
         return rotated_vertices, rotated_normals
 
     @staticmethod
     def _normalize_loaded_vertices(vertices: np.ndarray) -> np.ndarray:
-        """Center imported meshes and scale their longest side to roughly unit size."""
+        """Đưa mesh về tâm và scale cạnh dài nhất xấp xỉ 1 đơn vị."""
         if vertices.size == 0:
             return vertices
 

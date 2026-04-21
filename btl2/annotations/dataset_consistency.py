@@ -1,9 +1,8 @@
-"""Validate and optionally clean BTL2 dataset outputs.
+"""Kiểm tra và tùy chọn dọn dẹp output dataset BTL 2.
 
-This is the defensive checker for the submission pipeline. It verifies that RGB,
-mask, depth, YOLO labels, metadata and COCO annotations agree by frame stem. With
---fix, it removes OS junk files and orphaned generated artifacts whose frame has
-no matching RGB image.
+Đây là lớp kiểm tra phòng thủ cho pipeline nộp bài. Nó xác nhận RGB, mask,
+depth, nhãn YOLO, metadata và COCO annotation khớp nhau theo frame stem. Khi bật
+`--fix`, checker sẽ xóa file rác hệ điều hành và artifact mồ côi không có ảnh RGB.
 """
 
 from __future__ import annotations
@@ -25,6 +24,8 @@ JUNK_DIR_NAMES = {"__MACOSX", ".ipynb_checkpoints", "__pycache__"}
 
 
 class DatasetChecker:
+    """Validator trạng thái đầy đủ của một cây thư mục dataset BTL 2."""
+
     def __init__(
         self,
         root: Path,
@@ -53,6 +54,7 @@ class DatasetChecker:
 
     @staticmethod
     def _frame_stem(path: Path) -> str:
+        """Chuẩn hóa tên frame bằng cách bỏ hậu tố artifact như `_depth`, `_mask`."""
         stem = path.stem
         for suffix in ("_depth", "_mask", "_layer"):
             if stem.endswith(suffix):
@@ -93,6 +95,7 @@ class DatasetChecker:
             self._issue(f"failed to remove {path}: {exc}")
 
     def cleanup_junk(self) -> None:
+        """Tìm file/thư mục rác phổ biến và xóa nếu `fix=True`."""
         if not self.root.exists():
             self._issue(f"dataset root does not exist: {self.root}")
             return
@@ -105,6 +108,7 @@ class DatasetChecker:
                 self._remove_path(path, "junk directory")
 
     def _collect(self, split: str) -> dict[str, dict[str, Path]]:
+        """Thu thập artifact của một split, gom theo stem frame."""
         folders = {
             "images": self.root / "images" / split,
             "masks": self.root / "masks" / split,
@@ -136,6 +140,7 @@ class DatasetChecker:
         return collected
 
     def _remove_orphans(self, split: str, collected: dict[str, dict[str, Path]]) -> None:
+        """Cảnh báo/xóa artifact không có ảnh RGB tương ứng."""
         image_stems = set(collected["images"].keys())
         for group in ("masks", "labels_yolo", "metadata", "depth_png", "depth_npy"):
             for stem, path in sorted(collected[group].items()):
@@ -144,6 +149,7 @@ class DatasetChecker:
                     self._remove_path(path, f"orphan {group} without RGB image in {split}")
 
     def _check_yolo(self, path: Path, width: int, height: int) -> list[dict[str, Any]]:
+        """Parse và kiểm tra file YOLO, đồng thời trả bbox đã decode sang pixel."""
         parsed: list[dict[str, Any]] = []
         if not path.exists():
             self._issue(f"missing YOLO label: {path}")
@@ -181,6 +187,7 @@ class DatasetChecker:
         return parsed
 
     def _check_metadata(self, path: Path, width: int, height: int) -> list[dict[str, Any]]:
+        """Kiểm tra metadata JSON và trả danh sách bbox trong metadata."""
         if not path.exists():
             self._issue(f"missing metadata: {path}")
             return []
@@ -242,6 +249,7 @@ class DatasetChecker:
         return int(np.all(mask_array == np.asarray(color, dtype=np.uint8), axis=2).sum())
 
     def _check_mask(self, path: Path, width: int, height: int, metadata_path: Path, boxes: list[dict[str, Any]]) -> None:
+        """Kiểm tra mask tồn tại, đúng size và có pixel cho annotation cần thiết."""
         if not path.exists():
             self._issue(f"missing mask: {path}")
             return
@@ -465,6 +473,7 @@ class DatasetChecker:
         return inter_area / union if union > 1e-9 else 0.0
 
     def validate(self) -> dict[str, Any]:
+        """Chạy toàn bộ kiểm tra và trả report JSON-friendly."""
         self.cleanup_junk()
         for split in EXPECTED_SPLITS:
             self.validate_split(split)
@@ -488,6 +497,7 @@ def validate_dataset(
     require_coco: bool = True,
     require_mask_pixels: bool = True,
 ) -> dict[str, Any]:
+    """API gọn để các module khác chạy checker mà không cần tạo class trực tiếp."""
     return DatasetChecker(
         root,
         fix=fix,
@@ -499,6 +509,7 @@ def validate_dataset(
 
 
 def main() -> int:
+    """CLI nhỏ để kiểm tra dataset đã sinh ngoài pipeline chính."""
     parser = argparse.ArgumentParser(description="Check and optionally clean BTL2 dataset consistency")
     parser.add_argument("dataset_root", type=Path, help="Path to a generated BTL2 dataset")
     parser.add_argument("--output", type=Path, default=None, help="Output JSON report path")

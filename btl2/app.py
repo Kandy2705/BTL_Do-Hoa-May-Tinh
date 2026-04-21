@@ -1,4 +1,11 @@
-"""Main application service that ties scene generation, rendering, and export together."""
+"""Service chính của BTL 2: nối dựng scene, render và xuất annotation.
+
+Luồng tổng quát của BTL 2:
+1. Đọc cấu hình YAML để biết kích thước ảnh, seed, số frame và class cần sinh.
+2. Dựng scene đường phố hoặc chuyển scene hiện có từ BTL 1 sang định dạng BTL 2.
+3. Render cùng một scene qua ba pass: RGB, depth và segmentation mask.
+4. Từ dữ liệu render + camera, xuất bbox, YOLO, COCO, metadata và báo cáo kiểm tra.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +44,13 @@ from btl2.utils.constants import CLASS_TO_ID
 
 @dataclass
 class FrameArtifacts:
-    """All arrays and annotations produced from one rendered frame."""
+    """Tất cả kết quả trung gian/cuối cùng sinh ra từ một frame đã render.
+
+    `rgb`, `depth_*` và `mask_rgb` là dữ liệu ảnh; `bboxes`, `metadata`,
+    `yolo_lines` và `segmentation_map` là phần nhãn dùng cho training/evaluate.
+    Gom các trường này vào một dataclass giúp các bước render và export trao
+    đổi rõ ràng, tránh truyền quá nhiều biến rời rạc.
+    """
 
     rgb: np.ndarray
     depth_linear: np.ndarray
@@ -50,10 +63,18 @@ class FrameArtifacts:
 
 
 class SyntheticRoadApp:
-    """High-level pipeline: build scene, render passes, export annotations."""
+    """Pipeline cấp cao của BTL 2.
+
+    Lớp này không tự sinh geometry chi tiết và cũng không tự viết shader; nó
+    đóng vai trò điều phối:
+    - `RoadSceneBuilder` tạo `Scene` và `MeshData`.
+    - Các `RenderPass` biến scene thành ảnh RGB/depth/mask.
+    - Các module `annotations` chuyển kết quả thành format dataset.
+    """
 
     def __init__(self, config: dict) -> None:
         self.config = config
+        # Tạo đủ cây thư mục output ngay từ đầu để các bước sau chỉ cần ghi file.
         self.output_root = ensure_output_tree(config["output_dir"])
         self.builder = RoadSceneBuilder(config)
         width = int(config["image_width"])
@@ -66,12 +87,18 @@ class SyntheticRoadApp:
         self.window = OffscreenWindow(width, height) if self._owns_window else None
         if self._owns_window and self.window is not None:
             self._shared_context = glfw.get_current_context()
+        # Mỗi render pass dùng một framebuffer riêng. Việc tách ra như vậy giúp
+        # đọc lại ảnh RGB, depth và mask độc lập, không bị pass sau ghi đè pass trước.
         self.rgb_target = RenderTarget(width, height)
         self.seg_target = RenderTarget(width, height)
         self.depth_target = RenderTarget(width, height)
+        # Ba shader pipeline dùng cùng scene/camera nhưng mục tiêu khác nhau:
+        # RGB để nhìn giống ảnh thật, depth để lấy khoảng cách, segmentation để mã màu object.
         self.rgb_pass = RGBRenderPass("shaders/btl2")
         self.depth_pass = DepthRenderPass("shaders/btl2")
         self.seg_pass = SegmentationRenderPass("shaders/btl2")
+        # COCO có thể lưu segmentation dưới dạng polygon hoặc RLE. Nếu config sai
+        # thì fallback về polygon vì dễ đọc và dễ kiểm tra bằng mắt hơn.
         coco_segmentation_mode = str(self.config.get("annotations", {}).get("coco_segmentation_mode", "polygon")).strip().lower()
         if coco_segmentation_mode not in {"polygon", "rle"}:
             coco_segmentation_mode = "polygon"
@@ -79,18 +106,22 @@ class SyntheticRoadApp:
         self.custom_csv_exporter = CustomCsvExporter()
 
     def close(self) -> None:
-        """Release the offscreen OpenGL context."""
+        """Giải phóng context OpenGL offscreen nếu BTL 2 tự tạo window."""
         if self._owns_window and self.window is not None:
             self.window.destroy()
 
     def generate_dataset(self, num_frames: int | None = None) -> list[dict]:
-        """Generate and export a full dataset split into train and val."""
+        """Sinh và ghi một dataset hoàn chỉnh, đã chia train/val."""
         total = int(num_frames or self.config["num_frames"])
         summaries: list[dict] = []
         for frame_index in range(total):
+            # Mỗi frame dùng seed = base_seed + frame_index nên dataset lặp lại
+            # được chính xác, nhưng vẫn khác nhau giữa các frame.
             scene, mesh_registry = self.builder.build_scene(frame_index)
             frame = self.render_frame(scene, mesh_registry)
             paths = self.export_frame(scene, frame)
+            # Hai exporter này gom dữ liệu toàn bộ dataset trước, rồi cuối vòng
+            # lặp mới ghi JSON/CSV để có đủ danh sách images/annotations.
             self.coco_exporter.add_frame(scene.frame_id, scene.split, scene.camera.image_width, scene.camera.image_height, frame.bboxes, paths)
             self.custom_csv_exporter.add_frame(scene.frame_id, scene.split, frame.bboxes, paths)
             summaries.append(paths)
@@ -102,22 +133,27 @@ class SyntheticRoadApp:
         return summaries
 
     def preview_scene(self, seed_override: int | None = None) -> FrameArtifacts:
-        """Render one scene without writing a full dataset."""
+        """Render thử một scene mà không ghi toàn bộ dataset ra đĩa."""
         if seed_override is not None:
+            # Override seed trực tiếp vào config để builder dùng cùng cơ chế với generate.
             self.config["seed"] = int(seed_override)
         scene, mesh_registry = self.builder.build_scene(0)
         return self.render_frame(scene, mesh_registry)
 
     def generate_from_btl1_scene(self, btl1_objects: list, num_frames: int, base_seed: int = 42) -> list[dict]:
-        """Export dataset frames from the existing BTL1 scene and its placed cameras.
+        """Xuất dataset từ scene đang dựng trong BTL 1 và các camera đã đặt.
 
-        Only scene cameras are used. The viewer default camera is not part of
-        `btl1_objects`, so it is naturally excluded.
+        Chỉ các camera là object trong scene mới được dùng. Camera mặc định của
+        viewer không nằm trong `btl1_objects`, nên tự nhiên không bị đưa vào dataset.
         """
+        # Người dùng có thể đặt nhiều camera trong scene BTL 1. Khi xuất nhiều
+        # frame, pipeline sẽ quay vòng qua danh sách camera đó.
         placed_cameras = [obj for obj in btl1_objects if hasattr(obj, "camera_fov")]
         if not placed_cameras:
             raise RuntimeError("Khong co camera nao trong scene. Hay them Camera trong Hierarchy truoc khi xuat BTL 2.")
 
+        # Renderable ở đây là object có `drawable`; các node điều khiển, camera,
+        # đèn hoặc helper không có mesh sẽ không được xuất.
         renderables = [obj for obj in btl1_objects if hasattr(obj, "drawable") and getattr(obj, "drawable", None) is not None]
         if not renderables:
             raise RuntimeError("Khong co object nao co the render trong scene hien tai.")
@@ -145,12 +181,14 @@ class SyntheticRoadApp:
         return summaries
 
     def _validate_exported_dataset(self) -> None:
-        """Run a strict consistency check after export so bad datasets fail fast."""
+        """Kiểm tra dataset sau khi xuất để phát hiện lỗi sớm."""
         validation_cfg = self.config.get("validation", {})
         enabled = bool(validation_cfg.get("enabled", True))
         if not enabled:
             return
 
+        # Validator kiểm tra nhiều mối liên hệ chéo: ảnh có nhãn tương ứng,
+        # mask có pixel cho instance, COCO/YOLO không lệch class, depth có đủ file...
         report = validate_dataset(
             self.output_root,
             fix=bool(validation_cfg.get("auto_fix", True)),
@@ -173,30 +211,41 @@ class SyntheticRoadApp:
             print(f"BTL2 dataset validation warnings: {warning_count}. Report: {report_path}")
 
     def render_frame(self, scene, mesh_registry) -> FrameArtifacts:
-        """Run RGB, depth, and segmentation passes and derive annotations."""
+        """Render một frame qua RGB/depth/segmentation rồi suy ra annotation."""
         if self.window is not None:
             self.window.make_current()
         elif self._shared_context is not None:
             glfw.make_context_current(self._shared_context)
+        # CameraMatrices chứa view/projection dùng chung cho shader và phép chiếu bbox.
         camera = build_camera_matrices(scene.camera)
+        # MeshData còn nằm ở CPU; `upload_mesh` tạo VAO/VBO/EBO/texture để GPU vẽ được.
         meshes: dict[str, GLMesh] = {name: upload_mesh(mesh) for name, mesh in mesh_registry.items()}
         materials = self._build_materials(scene)
 
+        # Pass 1: ảnh RGB cuối cùng, có texture và ánh sáng để nhìn như ảnh camera.
         self.rgb_pass.render(scene, camera, self.rgb_target, meshes, materials)
         rgb = self.rgb_target.read_rgb()
 
+        # Pass 2: depth buffer của OpenGL là phi tuyến, nên cần linearize để dùng
+        # như bản đồ khoảng cách và tạo thêm PNG xem nhanh.
         self.depth_pass.render(scene, camera, self.depth_target, meshes)
         depth_buffer = self.depth_target.read_depth()
         depth_linear, depth_gray = linearize_depth(depth_buffer, camera.near, camera.far)
 
+        # Pass 3: segmentation gán màu duy nhất cho từng instance. Ảnh mask này là
+        # nguồn để tính occlusion và segmentation polygon/RLE cho COCO.
         self.seg_pass.render(scene, camera, self.seg_target, meshes, materials)
         mask_rgb = self.seg_target.read_rgb()
 
+        # BBox được tính bằng cách chiếu AABB 3D qua view/projection; sau đó mask
+        # giúp ước lượng object bị che bao nhiêu bởi object khác.
         bboxes = compute_bounding_boxes(scene, camera, self.config["annotations"])
         occlusion = estimate_occlusion_ratios(mask_rgb, scene.objects)
         for bbox in bboxes:
             bbox["occlusion_ratio"] = occlusion.get(bbox["instance_id"], 0.0)
 
+        # Metadata giữ lại đủ thông tin để debug một frame: camera, light, object,
+        # bbox và mapping màu segmentation.
         segmentation_map = build_segmentation_mapping(scene.objects, mask_rgb)
         metadata = export_frame_metadata(scene, bboxes, segmentation_map)
         yolo_lines = export_yolo_labels(bboxes, scene.camera.image_width, scene.camera.image_height)
@@ -217,9 +266,11 @@ class SyntheticRoadApp:
         )
 
     def export_frame(self, scene, frame: FrameArtifacts) -> dict[str, str]:
-        """Write one frame worth of images and labels to the dataset tree."""
+        """Ghi ảnh, depth, mask, label và metadata của một frame ra cây dataset."""
         split = scene.split
         frame_id = scene.frame_id
+        # Tên file dùng cùng `frame_id` trên mọi thư mục để dễ truy ngược:
+        # images/train/frame_000001.png -> labels_yolo/train/frame_000001.txt...
         image_path = self.output_root / "images" / split / f"{frame_id}.png"
         depth_png_path = self.output_root / "depth" / split / f"{frame_id}_depth.png"
         depth_npy_path = self.output_root / "depth" / split / f"{frame_id}_depth.npy"
@@ -231,6 +282,8 @@ class SyntheticRoadApp:
         save_mask(mask_path, frame.mask_rgb)
         save_depth_outputs(depth_png_path, depth_npy_path, frame.depth_gray, frame.depth_linear, bool(self.config["save_depth_npy"]))
         yolo_path.write_text("\n".join(frame.yolo_lines), encoding="utf-8")
+        # Metadata cũng lưu lại path output để các script kiểm tra/visualize không
+        # phải tự đoán vị trí file liên quan.
         frame.metadata["paths"] = {
             "rgb": str(image_path),
             "depth_png": str(depth_png_path),
@@ -251,9 +304,11 @@ class SyntheticRoadApp:
 
     @staticmethod
     def _build_materials(scene) -> dict[int, Material]:
-        """Create per-object materials for RGB and segmentation passes."""
+        """Tạo material cho từng object, gồm màu RGB và màu mã hóa segmentation."""
         materials: dict[int, Material] = {}
         for obj in scene.objects:
+            # Road là nền, không phải instance training riêng, nên dùng màu theo class.
+            # Object động dùng màu theo instance_id để phân biệt từng xe/người/biển báo.
             if obj.class_name == "road":
                 seg_color = color_to_float(class_color("road"))
             else:
@@ -262,7 +317,7 @@ class SyntheticRoadApp:
         return materials
 
     def _build_scene_from_btl1(self, all_objects: list, renderables: list, camera_obj, frame_index: int, seed: int) -> tuple[Scene, dict[str, MeshData]]:
-        """Convert the current BTL1 scene representation into the BTL2 scene format."""
+        """Chuyển scene BTL 1 hiện tại sang `Scene`/`MeshData` của BTL 2."""
         split = "train" if frame_index < int(self.config["num_frames"] * float(self.config.get("train_split", 0.8))) else "val"
         camera = self._camera_from_btl1(camera_obj)
         light = self._light_from_btl1(all_objects)
@@ -279,13 +334,19 @@ class SyntheticRoadApp:
         instance_id = 1
         for obj in renderables:
             drawable = getattr(obj, "drawable", None)
+            # BTL 1 không bắt buộc object có class dataset, nên BTL 2 suy luận class
+            # từ tên object. Người dùng có thể đặt tên chứa car/bus/person/sign...
             class_name = self._infer_class_name(obj.name)
             if class_name is None:
                 continue
             is_road = class_name == "road"
+            # Road/city mesh có thể nhiều material/texture; tách theo material giúp
+            # render offscreen giữ màu gần giống viewport BTL 1.
             meshes = self._meshes_from_drawable(drawable, split_by_material=is_road)
             if not meshes:
                 continue
+            # Road dùng instance_id=0 và semantic_id=255 để không sinh bbox YOLO,
+            # nhưng vẫn có thể xuất mask nền nếu cần kiểm tra segmentation.
             current_instance_id = 0 if is_road else instance_id
             semantic_id = 255 if is_road else CLASS_TO_ID[class_name]
 
@@ -315,11 +376,13 @@ class SyntheticRoadApp:
         return scene, mesh_registry
 
     def _camera_from_btl1(self, camera_obj) -> CameraState:
-        """Create a BTL2 camera from a camera placed in the BTL1 scene."""
+        """Tạo camera BTL 2 từ camera object đã đặt trong scene BTL 1."""
         position = np.asarray(camera_obj.position, dtype=np.float32)
         rotation = np.radians(np.asarray(camera_obj.rotation, dtype=np.float32))
         pitch = float(rotation[0])
         yaw = float(rotation[1])
+        # BTL 1 lưu rotation theo Euler; ở đây đổi pitch/yaw thành vector forward
+        # để tạo target cho ma trận look-at của pipeline BTL 2.
         forward = np.array(
             [
                 np.sin(yaw) * np.cos(pitch),
@@ -344,9 +407,11 @@ class SyntheticRoadApp:
 
     @staticmethod
     def _light_from_btl1(scene_objects: list) -> DirectionalLight:
-        """Approximate a directional light from the first visible BTL1 light, or use a default."""
+        """Xấp xỉ directional light từ đèn BTL 1 đầu tiên, hoặc dùng mặc định."""
         for obj in scene_objects:
             if hasattr(obj, "light_intensity") and getattr(obj, "visible", True):
+                # Với directional light, hướng quan trọng hơn vị trí tuyệt đối.
+                # Ta lấy vector vị trí object làm hướng ánh sáng đơn giản, dễ dự đoán.
                 direction = np.asarray(obj.position, dtype=np.float32)
                 if np.linalg.norm(direction) < 1e-6:
                     direction = np.array([0.4, -1.0, 0.2], dtype=np.float32)
@@ -367,12 +432,12 @@ class SyntheticRoadApp:
 
     @classmethod
     def _meshes_from_drawable(cls, drawable, split_by_material: bool = False) -> list[tuple[str, MeshData]]:
-        """Convert a BTL1 drawable into one or more BTL2 meshes.
+        """Chuyển drawable của BTL 1 thành một hoặc nhiều mesh BTL 2.
 
-        BTL1 OBJ preview supports multi-material rendering by drawing index
-        ranges with different textures. The BTL2 offscreen renderer uses one
-        texture per mesh, so static city/road meshes must be split by material
-        to keep RGB texture mapping identical to the viewport.
+        Preview OBJ của BTL 1 có thể vẽ nhiều material bằng các đoạn index khác
+        nhau. Renderer offscreen của BTL 2 đơn giản hơn: một mesh thường gắn một
+        texture chính. Vì vậy static city/road mesh cần tách theo material để ảnh
+        RGB xuất ra vẫn giữ texture mapping giống viewport.
         """
         if drawable is None or not hasattr(drawable, "vertices"):
             return []
@@ -390,6 +455,8 @@ class SyntheticRoadApp:
         if hasattr(drawable, "indices") and getattr(drawable, "indices") is not None and len(drawable.indices) >= 3:
             indices = np.asarray(drawable.indices, dtype=np.uint32).reshape(-1)
         else:
+            # Một số primitive BTL 1 không có index buffer. Khi đó coi mỗi 3 vertex
+            # liên tiếp là một tam giác độc lập.
             usable = (len(vertices) // 3) * 3
             if usable < 3:
                 return []
@@ -474,7 +541,7 @@ class SyntheticRoadApp:
 
     @staticmethod
     def _infer_class_name(name: str) -> str | None:
-        """Infer one of the BTL2 training classes from an object name."""
+        """Suy luận class training của BTL 2 từ tên object trong BTL 1."""
         lowered = name.lower()
         if any(token in lowered for token in ("road", "street", "lane", "ground", "floor", "terrain", "city", "intersection", "building")):
             return "road"
@@ -494,7 +561,7 @@ class SyntheticRoadApp:
 
     @staticmethod
     def _base_color_from_btl1(obj, class_name: str) -> np.ndarray:
-        """Use explicit object color when available, otherwise use stable class color."""
+        """Ưu tiên màu object BTL 1, nếu không hợp lệ thì dùng màu class ổn định."""
         class_rgb = color_to_float(class_color(class_name))
         raw_color = np.asarray(getattr(obj, "color", [1.0, 1.0, 1.0])[:3], dtype=np.float32)
         if raw_color.size != 3 or not np.all(np.isfinite(raw_color)):
@@ -503,6 +570,8 @@ class SyntheticRoadApp:
         alpha = float(getattr(obj, "color", [1.0, 1.0, 1.0, 1.0])[3]) if len(getattr(obj, "color", [])) >= 4 else 1.0
         is_default_white = bool(np.all(raw_color > 0.92))
         is_default_black = bool(np.all(raw_color < 0.04))
+        # Trắng/đen mặc định thường không phải màu chủ ý của người dùng; dùng màu
+        # theo class sẽ giúp ảnh preview và segmentation dễ phân biệt hơn.
         if class_name == "road" or alpha <= 0.05 or is_default_white or is_default_black:
             return class_rgb
         return np.clip(raw_color, 0.0, 1.0).astype(np.float32)

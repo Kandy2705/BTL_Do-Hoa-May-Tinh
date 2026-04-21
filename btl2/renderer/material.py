@@ -1,4 +1,4 @@
-"""Small material abstraction for RGB and segmentation colors."""
+"""Material tối giản cho màu RGB và màu segmentation của object."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 
 @dataclass
 class Material:
-    """Per-object colors used by the shaders."""
+    """Màu riêng của object được shader RGB/segmentation sử dụng."""
 
     base_color: np.ndarray
     segmentation_color: np.ndarray

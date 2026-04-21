@@ -1,4 +1,4 @@
-"""Deterministic random utilities used by scene generation."""
+"""Tiện ích random có seed cố định cho quá trình sinh scene BTL 2."""
 
 from __future__ import annotations
 
@@ -9,25 +9,26 @@ import numpy as np
 
 @dataclass
 class Randomizer:
-    """Thin wrapper around NumPy Generator with helper sampling methods."""
+    """Wrapper mỏng quanh NumPy Generator để mọi random đều đi qua cùng seed."""
 
     seed: int
 
     def __post_init__(self) -> None:
+        # Dùng default_rng để kết quả ổn định và tách biệt khỏi random global.
         self.rng = np.random.default_rng(self.seed)
 
     def uniform(self, low: float, high: float) -> float:
-        """Sample a float uniformly in [low, high)."""
+        """Lấy một số thực phân bố đều trong [low, high)."""
         return float(self.rng.uniform(low, high))
 
     def randint(self, low: int, high: int) -> int:
-        """Sample an integer in [low, high] inclusive."""
+        """Lấy số nguyên trong [low, high], bao gồm cả high."""
         return int(self.rng.integers(low, high + 1))
 
     def choice(self, values: list):
-        """Sample one element from a list."""
+        """Chọn ngẫu nhiên một phần tử trong list."""
         return values[int(self.rng.integers(0, len(values)))]
 
     def vector_uniform(self, low: float, high: float, size: int) -> np.ndarray:
-        """Sample a float vector with i.i.d. uniform entries."""
+        """Lấy vector số thực, mỗi phần tử độc lập theo uniform [low, high)."""
         return self.rng.uniform(low, high, size=size).astype(np.float32)

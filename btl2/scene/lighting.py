@@ -1,4 +1,4 @@
-"""Lighting helpers for procedurally generated scenes."""
+"""Helper sinh ánh sáng cho scene procedural của BTL 2."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from btl2.utils.math3d import normalize
 
 
 def sample_directional_light(config: dict, randomizer: Randomizer) -> DirectionalLight:
-    """Sample one directional light from config ranges."""
+    """Lấy mẫu một directional light từ các khoảng cấu hình."""
+    # Pitch/yaw thay đổi nhẹ giữa frame để ảnh RGB đa dạng hơn về bóng/độ sáng.
     pitch = math.radians(randomizer.uniform(*config["directional_pitch_range"]))
     yaw = math.radians(randomizer.uniform(*config["directional_yaw_range"]))
     direction = np.array(
@@ -24,6 +25,8 @@ def sample_directional_light(config: dict, randomizer: Randomizer) -> Directiona
         dtype=np.float32,
     )
     intensity = randomizer.uniform(*config["directional_intensity_range"])
+    # Giữ màu trắng để dataset không bị bias màu ánh sáng; độ đa dạng đến từ hướng
+    # và intensity, không phải tint màu.
     color = np.array([1.0, 1.0, 1.0], dtype=np.float32)
     return DirectionalLight(
         direction=normalize(direction),

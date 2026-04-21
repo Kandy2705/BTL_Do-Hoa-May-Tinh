@@ -1,8 +1,10 @@
-"""Shared constants used across the repository."""
+"""Hằng số dùng chung cho pipeline dataset BTL 2."""
 
 from __future__ import annotations
 
 CLASS_NAMES = [
+    # Thứ tự class ở đây quyết định class_id cho YOLO/COCO. Không đổi thứ tự nếu
+    # muốn giữ tương thích với dataset/model đã train trước đó.
     "person",
     "car",
     "bus",
@@ -17,6 +19,8 @@ CLASS_TO_ID = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 DEFAULT_SPLITS = ("train", "val")
 
 DEFAULT_OUTPUT_SUBDIRS = (
+    # Layout output chuẩn: mỗi artifact có train/val riêng để các framework ML
+    # đọc trực tiếp mà không cần script chuyển đổi thêm.
     "images/train",
     "images/val",
     "depth/train",

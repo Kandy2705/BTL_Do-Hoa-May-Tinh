@@ -5,12 +5,18 @@ import imgui
 
 
 class BTL2Panel:
-    """BTL2 workflow panel: source -> config -> validate -> generate -> result."""
+    """Panel UI điều khiển workflow BTL 2.
+
+    Luồng trên giao diện đi theo thứ tự: chọn nguồn scene -> cấu hình output ->
+    validate -> generate dataset -> xem preview -> chạy inference thử.
+    Hàm `draw` chỉ tạo UI và trả về `actions`; phần xử lý thật nằm ở model/controller.
+    """
 
     IMAGE_VIEWER_POPUP = "BTL2 Image Preview##btl2_image_viewer"
 
     @staticmethod
     def _vec2_xy(value, default=(0.0, 0.0)):
+        """Đổi nhiều kiểu vec2 của imgui/glfw về tuple `(x, y)` an toàn."""
         if value is None:
             return default
         if hasattr(value, "x") and hasattr(value, "y"):
@@ -22,10 +28,12 @@ class BTL2Panel:
 
     @staticmethod
     def _clamp(value, min_value, max_value):
+        """Giới hạn một giá trị trong khoảng min/max."""
         return max(min_value, min(max_value, value))
 
     @staticmethod
     def _image_viewer_state(model):
+        """Lấy hoặc khởi tạo state cho modal xem ảnh preview."""
         state = getattr(model, "btl2_image_viewer_state", None)
         if not isinstance(state, dict):
             state = {
@@ -45,6 +53,7 @@ class BTL2Panel:
 
     @staticmethod
     def _open_image_viewer(model, title, image_path, preview):
+        """Nạp thông tin ảnh vào state và yêu cầu mở popup preview lớn."""
         state = BTL2Panel._image_viewer_state(model)
         state.update(
             {
@@ -63,6 +72,7 @@ class BTL2Panel:
 
     @staticmethod
     def _draw_clickable_preview(model, preview, title, image_path, widget_id):
+        """Vẽ thumbnail preview có thể click để mở modal zoom/pan."""
         if not preview or not preview.get("texture_id"):
             return
 
@@ -90,11 +100,13 @@ class BTL2Panel:
 
     @staticmethod
     def _fit_zoom(width, height, canvas_w, canvas_h):
+        """Tính mức zoom vừa khít ảnh trong vùng canvas."""
         fit = min(canvas_w / max(width, 1.0), canvas_h / max(height, 1.0))
         return BTL2Panel._clamp(min(fit, 1.0), 0.02, 10.0)
 
     @staticmethod
     def _clamp_pan(state, canvas_w, canvas_h, scaled_w, scaled_h):
+        """Giới hạn pan để ảnh không bị kéo trôi hoàn toàn khỏi canvas."""
         if scaled_w <= canvas_w:
             state["offset_x"] = 0.0
         else:
@@ -109,6 +121,7 @@ class BTL2Panel:
 
     @staticmethod
     def _zoom_image_viewer(state, new_zoom, canvas_pos=None, canvas_size=None, mouse_pos=None):
+        """Zoom ảnh preview, giữ điểm dưới con trỏ ổn định nếu có tọa độ chuột."""
         old_zoom = max(float(state.get("zoom", 1.0)), 0.02)
         new_zoom = BTL2Panel._clamp(float(new_zoom), 0.02, 10.0)
         if abs(new_zoom - old_zoom) < 1e-6:
@@ -132,6 +145,7 @@ class BTL2Panel:
 
     @staticmethod
     def _draw_image_viewer_modal(model):
+        """Vẽ modal xem ảnh lớn với fit, zoom, pan và đóng bằng Escape."""
         state = BTL2Panel._image_viewer_state(model)
         if state.pop("request_open", False):
             imgui.open_popup(BTL2Panel.IMAGE_VIEWER_POPUP)
@@ -209,6 +223,7 @@ class BTL2Panel:
         if hovered:
             wheel = float(getattr(io, "mouse_wheel", 0.0))
             if abs(wheel) > 1e-6:
+                # Zoom bằng wheel quanh vị trí chuột để người dùng inspect bbox/mask dễ hơn.
                 mouse_x, mouse_y = BTL2Panel._vec2_xy(imgui.get_mouse_pos())
                 BTL2Panel._zoom_image_viewer(
                     state,
@@ -278,6 +293,7 @@ class BTL2Panel:
 
     @staticmethod
     def _validate(model):
+        """Kiểm tra input tối thiểu trước khi cho phép generate dataset."""
         issues = []
         cfg = (model.btl2_config_path or "").strip()
         out_dir = (model.btl2_output_dir or "").strip()
@@ -297,6 +313,8 @@ class BTL2Panel:
             issues.append("Seed must be >= 0.")
 
         if model.btl2_source_mode == "current_scene":
+            # Chế độ current_scene cần ít nhất một camera do người dùng đặt và một
+            # object có drawable; camera viewport mặc định không được tính.
             if getattr(model, 'btl2_scene_camera_count', 0) <= 0:
                 issues.append("Current scene needs at least 1 camera object.")
             if getattr(model, 'btl2_scene_renderable_count', 0) <= 0:
@@ -306,6 +324,7 @@ class BTL2Panel:
 
     @staticmethod
     def draw(model, dataset_preview=None, inference_preview=None):
+        """Vẽ toàn bộ panel BTL 2 và trả về dict action cho controller xử lý."""
         actions = {}
         win_w, win_h = glfw.get_window_size(glfw.get_current_context())
         win_w = max(win_w, 800)
@@ -317,6 +336,7 @@ class BTL2Panel:
         imgui.begin("BTL2 Dataset Builder", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
 
         if model.btl2_source_mode == "current_scene":
+            # Summary có thể thay đổi khi người dùng thêm/xóa object ở Hierarchy.
             model.refresh_btl2_scene_summary()
 
         status_name, status_color, status_text = BTL2Panel._status_meta(getattr(model, "btl2_last_status", ""))
@@ -336,6 +356,8 @@ class BTL2Panel:
         if changed_mode:
             model.btl2_source_mode = source_modes[new_mode]
             if model.btl2_source_mode == "current_scene":
+                # Khi quay lại current scene, cập nhật ngay số camera/renderable để
+                # phần validation phản hồi đúng.
                 model.refresh_btl2_scene_summary()
                 model.btl2_last_status = "Source set: current BTL1 scene."
             else:
@@ -379,6 +401,8 @@ class BTL2Panel:
         issues = BTL2Panel._validate(model)
         can_generate = len(issues) == 0
         if not can_generate:
+            # Button vẫn bấm được để báo lý do fail trong status, nhưng không gửi
+            # action generate cho controller.
             imgui.push_style_color(imgui.COLOR_BUTTON, 0.30, 0.30, 0.30, 1.0)
             imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 0.35, 0.35, 0.35, 1.0)
             clicked_generate = imgui.button("Generate Dataset")
@@ -431,6 +455,7 @@ class BTL2Panel:
             ("Mask", "mask"),
             ("GT Boxes", "boxes"),
         ]
+        # Preview tabs chỉ đổi mode hiển thị; ảnh thật được controller render/load lại.
         for idx, (label, mode) in enumerate(preview_tabs):
             is_active = getattr(model, "btl2_preview_mode", "rgb") == mode
             if is_active:
@@ -493,6 +518,7 @@ class BTL2Panel:
             imgui.pop_style_color()
 
         if getattr(model, "btl2_inference_backend", "local_yolo") == "roboflow":
+            # Roboflow là backend tùy chọn, cần đủ thông tin API/workspace/workflow.
             imgui.text_wrapped("Roboflow uses inference-sdk and sends the selected image to your configured Workflow.")
             changed_url, new_url = imgui.input_text(
                 "API URL##roboflow",
@@ -582,6 +608,7 @@ class BTL2Panel:
             model.btl2_detector_weight_preset = "custom"
         current_preset = str(getattr(model, "btl2_detector_weight_preset", "custom"))
         imgui.text("Quick Select")
+        # Các preset chỉ chọn đường dẫn/model; load thật diễn ra khi bấm Load Detector.
         if current_preset == "yolov8s":
             imgui.push_style_color(imgui.COLOR_BUTTON, 0.20, 0.55, 0.90)
         if imgui.button("YOLOv8s"):

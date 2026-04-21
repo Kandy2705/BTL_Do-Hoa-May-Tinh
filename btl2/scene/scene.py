@@ -1,4 +1,8 @@
-"""Container object for one procedurally generated frame."""
+"""Các dataclass mô tả một frame scene BTL 2 trước khi render.
+
+Những lớp trong file này chỉ giữ dữ liệu thuần: camera, đèn, danh sách object.
+Renderer và exporter cùng đọc chung cấu trúc này nên các trường phải rõ nghĩa.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from btl2.scene.scene_object import SceneObject
 
 @dataclass
 class DirectionalLight:
-    """Simple directional light used by the RGB shading pass."""
+    """Nguồn sáng hướng đơn giản dùng trong pass RGB."""
 
     direction: np.ndarray
     color: np.ndarray
@@ -21,7 +25,7 @@ class DirectionalLight:
 
 @dataclass
 class CameraState:
-    """Camera intrinsics and pose stored alongside the scene."""
+    """Thông số camera gồm pose và intrinsics của ảnh output."""
 
     position: np.ndarray
     target: np.ndarray
@@ -35,7 +39,7 @@ class CameraState:
 
 @dataclass
 class Scene:
-    """Full scene description consumed by renderer and annotation modules."""
+    """Mô tả đầy đủ một frame để renderer và annotation module cùng sử dụng."""
 
     frame_id: str
     seed: int
@@ -46,5 +50,5 @@ class Scene:
     background_color: np.ndarray = field(default_factory=lambda: np.array([0.6, 0.75, 0.95], dtype=np.float32))
 
     def add_object(self, obj: SceneObject) -> None:
-        """Append one object to the render list."""
+        """Thêm object vào danh sách render theo thứ tự vẽ của scene."""
         self.objects.append(obj)

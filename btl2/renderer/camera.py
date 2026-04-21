@@ -1,4 +1,4 @@
-"""Camera matrices derived from the scene camera state."""
+"""Tạo ma trận camera dùng chung cho shader và tính annotation."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from btl2.utils.math3d import look_at, perspective
 
 @dataclass
 class CameraMatrices:
-    """View and projection matrices plus a few convenience values."""
+    """Ma trận view/projection và các thông số tiện ích của camera render."""
 
     view: np.ndarray
     projection: np.ndarray
@@ -24,7 +24,9 @@ class CameraMatrices:
 
 
 def build_camera_matrices(camera: CameraState) -> CameraMatrices:
-    """Turn camera pose and intrinsics into the matrices used by shaders."""
+    """Đổi `CameraState` thành ma trận mà OpenGL shader có thể dùng."""
+    # Aspect phải khớp kích thước ảnh output, nếu không bbox chiếu ra màn hình sẽ
+    # lệch so với ảnh RGB/mask đã render.
     aspect = float(camera.image_width) / float(camera.image_height)
     return CameraMatrices(
         view=look_at(camera.position, camera.target, camera.up),

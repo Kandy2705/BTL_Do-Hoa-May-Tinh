@@ -1,4 +1,4 @@
-"""Data structures that describe renderable objects in one scene."""
+"""Cấu trúc dữ liệu cho từng object renderable trong scene BTL 2."""
 
 from __future__ import annotations
 
@@ -12,7 +12,11 @@ from btl2.utils.math3d import AABB, compose_model_matrix
 
 @dataclass
 class SceneObject:
-    """One renderable object with transform, labels, and shading info."""
+    """Một object có transform, class/instance label và thông tin vật liệu.
+
+    `instance_id` dùng để tách từng object trong segmentation mask. Riêng road
+    thường có `instance_id = 0` vì là nền, không xuất bbox như object động.
+    """
 
     name: str
     class_name: str
@@ -29,11 +33,11 @@ class SceneObject:
 
     @property
     def model_matrix(self) -> np.ndarray:
-        """Compute the current model matrix from object transform fields."""
+        """Tính ma trận model từ position/rotation/scale hiện tại."""
         return compose_model_matrix(self.position, self.rotation_degrees, self.scale)
 
     def to_metadata(self) -> dict[str, Any]:
-        """Export the transform and identity fields to JSON-ready values."""
+        """Chuyển object sang dict thuần để ghi JSON metadata."""
         return {
             "name": self.name,
             "class_name": self.class_name,

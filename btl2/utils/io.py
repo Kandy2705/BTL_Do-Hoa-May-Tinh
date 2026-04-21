@@ -1,4 +1,4 @@
-"""Filesystem and config helpers."""
+"""Helper đọc cấu hình và ghi file cho pipeline BTL 2."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from btl2.utils.constants import DEFAULT_OUTPUT_SUBDIRS
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
-    """Read a YAML config file into a plain dictionary.
+    """Đọc file YAML config thành dict Python.
 
-    The preferred path uses PyYAML. If the package is missing, we fall back to
-    a tiny indentation-based parser that supports the config style used in this repo.
+    Ưu tiên PyYAML nếu máy có cài. Nếu thiếu package, fallback sang parser nhỏ
+    dựa trên indentation, đủ dùng cho các file config đi kèm repo.
     """
     path_obj = Path(path)
     if yaml is not None:
@@ -30,34 +30,35 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
 
 
 def ensure_dir(path: str | Path) -> Path:
-    """Create a directory if it does not exist and return the Path object."""
+    """Tạo thư mục nếu chưa tồn tại và trả về `Path` của thư mục đó."""
     target = Path(path)
     target.mkdir(parents=True, exist_ok=True)
     return target
 
 
 def ensure_output_tree(root: str | Path) -> Path:
-    """Create the expected dataset folder layout under one output root."""
+    """Tạo layout thư mục dataset chuẩn dưới một output root."""
     root_path = ensure_dir(root)
+    # Danh sách subdir nằm trong constants để CLI, UI và script kiểm tra dùng chung.
     for subdir in DEFAULT_OUTPUT_SUBDIRS:
         ensure_dir(root_path / subdir)
     return root_path
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
-    """Save JSON with indentation so generated metadata is human-readable."""
+    """Ghi JSON có indent để metadata/annotation dễ đọc bằng mắt."""
     with Path(path).open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
 
 def _load_yaml_fallback(path: Path) -> dict[str, Any]:
-    """Parse a very small YAML subset used by the bundled config files.
+    """Parse một tập con YAML nhỏ dùng cho config đi kèm.
 
-    Supported:
-    - nested dictionaries by indentation
-    - scalar values
-    - inline lists like `[1, 2, 3]`
-    - booleans, ints, floats, and quoted strings
+    Hỗ trợ:
+    - dict lồng nhau theo indentation
+    - scalar value
+    - list inline như `[1, 2, 3]`
+    - boolean, int, float và string có/không có quote
     """
     root: dict[str, Any] = {}
     stack: list[tuple[int, dict[str, Any]]] = [(-1, root)]
@@ -75,6 +76,7 @@ def _load_yaml_fallback(path: Path) -> dict[str, Any]:
         key = key.strip()
         raw_value = raw_value.strip()
 
+        # Khi indent giảm, pop stack để quay lại dict cha tương ứng.
         while stack and indent <= stack[-1][0]:
             stack.pop()
         current = stack[-1][1]
@@ -90,7 +92,7 @@ def _load_yaml_fallback(path: Path) -> dict[str, Any]:
 
 
 def _parse_yaml_scalar(raw_value: str) -> Any:
-    """Convert a simple YAML scalar into a Python value."""
+    """Chuyển scalar YAML đơn giản thành kiểu Python phù hợp."""
     lowered = raw_value.lower()
     if lowered == "true":
         return True

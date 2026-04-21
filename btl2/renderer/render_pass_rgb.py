@@ -1,4 +1,4 @@
-"""RGB shading pass with a simple directional-light Phong model."""
+"""Render pass RGB: tạo ảnh màu giống camera thật nhất trong pipeline BTL 2."""
 
 from __future__ import annotations
 
@@ -28,16 +28,17 @@ from btl2.scene.scene_object import SceneObject
 
 
 class RGBRenderPass:
-    """Render the scene into an RGB image."""
+    """Vẽ scene thành ảnh RGB, có texture và ánh sáng."""
 
     def __init__(self, shader_dir: str | Path) -> None:
         self.shader = ShaderProgram(Path(shader_dir) / "rgb.vert", Path(shader_dir) / "rgb.frag")
 
     def render(self, scene: Scene, camera: CameraMatrices, target, meshes: dict[str, GLMesh], materials: dict[int, Material]) -> None:
-        """Render all scene objects with lighting enabled."""
+        """Render toàn bộ object với cùng camera của depth/segmentation pass."""
         target.bind()
         glViewport(0, 0, camera.width, camera.height)
         glEnable(GL_DEPTH_TEST)
+        # Nền trời lấy từ scene config để ảnh sinh ra có màu ổn định theo dataset.
         glClearColor(*scene.background_color.tolist(), 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
@@ -56,12 +57,14 @@ class RGBRenderPass:
         self.shader.set_float("u_texture_saturation", 1.0)
 
         for obj in scene.objects:
+            # Mỗi object có model matrix và base color riêng; mesh có thể dùng lại
+            # giữa nhiều instance cùng class.
             self._draw_object(obj, meshes[obj.mesh_key], materials[obj.instance_id])
         glBindVertexArray(0)
         glBindTexture(GL_TEXTURE_2D, 0)
 
     def _draw_object(self, obj: SceneObject, mesh: GLMesh, material: Material) -> None:
-        """Upload per-object uniforms and draw one mesh."""
+        """Đẩy uniform riêng của object rồi vẽ mesh tương ứng."""
         self.shader.set_mat4("u_model", obj.model_matrix)
         self.shader.set_vec3("u_base_color", material.base_color)
         use_texture = mesh.texture_id is not None
@@ -70,6 +73,7 @@ class RGBRenderPass:
         self.shader.set_float("u_texture_brightness", brightness)
         self.shader.set_float("u_texture_saturation", saturation)
         if mesh.material_groups and mesh.material_texture_ids:
+            # Với OBJ nhiều material, vẽ từng đoạn index để bind đúng texture.
             drew_group = False
             for group in mesh.material_groups:
                 texture_id = mesh.material_texture_ids.get(group.get("material"))
@@ -93,7 +97,7 @@ class RGBRenderPass:
 
     @staticmethod
     def _texture_adjustment(obj: SceneObject) -> tuple[float, float]:
-        """Make large city/intersection backdrops brighter without changing vehicle colors."""
+        """Làm backdrop city/intersection sáng hơn mà không đổi màu xe/người."""
         name = f"{obj.name} {obj.metadata.get('original_name', '')} {obj.metadata.get('source_asset', '')}".lower()
         if any(token in name for token in ("city", "intersection", "building", "gas_station", "gas station")):
             return 1.20, 1.28

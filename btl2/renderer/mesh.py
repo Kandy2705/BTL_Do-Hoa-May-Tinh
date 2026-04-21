@@ -1,4 +1,4 @@
-"""Mesh upload and draw wrapper."""
+"""Đưa mesh từ CPU lên GPU và cung cấp hàm draw cho render pass."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from btl2.scene.object_loader import MeshData
 
 @dataclass
 class GLMesh:
-    """GPU-side mesh buffers with one VAO and packed position/normal VBO."""
+    """Mesh phía GPU: VAO/VBO/EBO, texture và nhóm material nếu có."""
 
     vao: int
     vbo: int
@@ -54,12 +54,12 @@ class GLMesh:
     material_texture_ids: dict[str, int] | None = None
 
     def draw(self) -> None:
-        """Issue the indexed draw call for this mesh."""
+        """Vẽ toàn bộ mesh bằng index buffer."""
         glBindVertexArray(self.vao)
         glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, None)
 
     def draw_range(self, start: int, count: int) -> None:
-        """Draw a contiguous index range, used for OBJ material groups."""
+        """Vẽ một đoạn index liên tục, dùng cho OBJ có nhiều material."""
         if count <= 0:
             return
         glBindVertexArray(self.vao)
@@ -67,12 +67,13 @@ class GLMesh:
 
 
 def _load_texture(texture_path) -> int | None:
-    """Load a diffuse image file into an OpenGL texture."""
+    """Nạp ảnh diffuse thành OpenGL texture."""
     if texture_path is None:
         return None
     try:
         from PIL import Image
 
+        # Chuyển sang RGBA để mọi loại ảnh đầu vào có số kênh thống nhất khi upload.
         image = Image.open(texture_path).convert("RGBA")
         image_data = image.tobytes("raw", "RGBA", 0, -1)
         texture_id = glGenTextures(1)
@@ -91,13 +92,15 @@ def _load_texture(texture_path) -> int | None:
 
 
 def upload_mesh(mesh: MeshData) -> GLMesh:
-    """Pack one mesh into a VAO with position, normal, and UV attributes."""
+    """Đóng gói mesh thành VAO với attribute position, normal và UV."""
     vao = glGenVertexArrays(1)
     vbo = glGenBuffers(1)
     ebo = glGenBuffers(1)
     texcoords = mesh.texcoords
     if texcoords is None or texcoords.shape != (mesh.vertices.shape[0], 2):
+        # Primitive fallback có thể không có UV; dùng UV 0 để shader vẫn chạy.
         texcoords = np.zeros((mesh.vertices.shape[0], 2), dtype=np.float32)
+    # Layout mỗi vertex: 3 float vị trí + 3 float normal + 2 float UV = 8 float.
     interleaved = np.hstack((mesh.vertices, mesh.normals, texcoords)).astype(np.float32)
 
     glBindVertexArray(vao)
@@ -108,6 +111,7 @@ def upload_mesh(mesh: MeshData) -> GLMesh:
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices.nbytes, mesh.indices, GL_STATIC_DRAW)
 
     stride = 8 * 4
+    # location 0/1/2 phải khớp với layout trong shader `shaders/btl2/*.vert`.
     glEnableVertexAttribArray(0)
     glVertexAttribPointer(0, 3, GL_FLOAT, False, stride, None)
     glEnableVertexAttribArray(1)
@@ -118,6 +122,8 @@ def upload_mesh(mesh: MeshData) -> GLMesh:
 
     texture_id = _load_texture(mesh.texture_path)
     material_texture_ids: dict[str, int] = {}
+    # Một số OBJ có nhiều material, mỗi material một texture. Lưu map này để
+    # RGBRenderPass bind đúng texture cho từng index range.
     for material_name, material_texture_path in (mesh.material_texture_paths or {}).items():
         if texture_id is not None and material_texture_path == mesh.texture_path:
             material_texture_ids[material_name] = texture_id

@@ -1,4 +1,9 @@
-"""COCO-format JSON export with polygon segmentation from masks."""
+"""Xuất annotation theo chuẩn COCO từ bbox và segmentation mask BTL 2.
+
+COCO cần danh sách image, category và annotation. BTL 2 đã có bbox từ phép chiếu
+3D, nhưng phần segmentation lấy trực tiếp từ mask RGB để phản ánh đúng vùng nhìn
+thấy sau khi depth test che khuất object.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from btl2.utils.colors import class_color, instance_color
 
 @dataclass
 class CocoExporter:
-    """Collect image and bbox annotations across the whole dataset."""
+    """Gom image/annotation của toàn dataset rồi ghi JSON train/val."""
 
     segmentation_mode: str = "polygon"
     next_image_id: int = 1
@@ -31,7 +36,7 @@ class CocoExporter:
 
     @staticmethod
     def _annotation_color(class_id: int, instance_id: int) -> tuple[int, int, int]:
-        """Resolve the encoded RGB used by the segmentation pass for one object."""
+        """Lấy màu RGB mà segmentation pass dùng cho một annotation."""
         class_name = CLASS_NAMES[int(class_id)]
         if class_name == "road":
             return class_color("road")
@@ -39,12 +44,14 @@ class CocoExporter:
 
     @staticmethod
     def _extract_polygons(mask_rgb: np.ndarray, color: tuple[int, int, int]) -> tuple[list[list[float]], list[float], float]:
-        """Convert one instance/class color region into COCO polygons, bbox, and area."""
+        """Đổi vùng màu của một instance thành polygon, bbox và area kiểu COCO."""
+        # Binary mask = 1 tại những pixel có đúng màu instance cần xuất.
         binary = np.all(mask_rgb == np.asarray(color, dtype=np.uint8), axis=2).astype(np.uint8)
         pixel_area = float(binary.sum())
         if pixel_area <= 0.0:
             return [], [], 0.0
 
+        # BBox COCO dùng [x, y, width, height] và tính theo vùng mask thực tế.
         ys, xs = np.nonzero(binary)
         x_min = float(xs.min())
         y_min = float(ys.min())
@@ -52,11 +59,14 @@ class CocoExporter:
         y_max = float(ys.max())
         bbox_xywh = [x_min, y_min, float(x_max - x_min + 1), float(y_max - y_min + 1)]
 
+        # Contour ngoài cùng cho polygon segmentation. Dùng RETR_EXTERNAL để bỏ lỗ
+        # nhỏ/nhiễu bên trong mask, giúp JSON gọn và dễ visualize.
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         polygons: list[list[float]] = []
         for contour in contours:
             if contour.shape[0] < 3:
                 continue
+            # approxPolyDP giảm số điểm contour nhưng vẫn giữ hình dáng chính.
             epsilon = max(0.75, 0.002 * cv2.arcLength(contour, True))
             approx = cv2.approxPolyDP(contour, epsilon, True)
             if approx.shape[0] < 3:
@@ -67,6 +77,7 @@ class CocoExporter:
                 polygons.append([round(float(v), 2) for v in polygon])
 
         if not polygons:
+            # Fallback thành hình chữ nhật nếu contour quá nhỏ/không đủ 3 điểm.
             polygon = [
                 round(x_min, 2), round(y_min, 2),
                 round(x_max + 1.0, 2), round(y_min, 2),
@@ -79,7 +90,8 @@ class CocoExporter:
 
     @staticmethod
     def _encode_rle(binary_mask: np.ndarray) -> dict[str, list[int] | list[int]]:
-        """Encode a binary mask into COCO-style uncompressed RLE."""
+        """Mã hóa binary mask thành COCO uncompressed RLE."""
+        # COCO RLE duyệt theo column-major order, nên transpose trước khi flatten.
         pixels = binary_mask.astype(np.uint8).T.flatten()
         counts: list[int] = []
         count = 0
@@ -96,9 +108,10 @@ class CocoExporter:
         return {"counts": counts, "size": [int(binary_mask.shape[0]), int(binary_mask.shape[1])]}
 
     def add_frame(self, frame_id: str, split: str, width: int, height: int, bboxes: list[dict], paths: dict[str, str]) -> None:
-        """Append one rendered frame and its object annotations."""
+        """Thêm một frame đã render cùng annotation object vào bộ nhớ exporter."""
         image_id = self.next_image_id
         self.next_image_id += 1
+        # Đọc mask từ file đã export để COCO phản ánh đúng artifact cuối cùng trên đĩa.
         mask_rgb = np.asarray(Image.open(paths["mask"]).convert("RGB"), dtype=np.uint8)
         self.images_by_split[split].append(
             {
@@ -116,6 +129,8 @@ class CocoExporter:
             binary_mask = np.all(mask_rgb == np.asarray(color, dtype=np.uint8), axis=2).astype(np.uint8)
             polygons, coco_bbox, area = self._extract_polygons(mask_rgb, color)
             if not coco_bbox:
+                # Nếu mask không có pixel, fallback bbox đã tính từ AABB để không
+                # mất annotation; validator phía sau sẽ cảnh báo nếu cần.
                 coco_bbox = [round(v, 3) for v in bbox["bbox_xywh"]]
                 area = round(coco_bbox[2] * coco_bbox[3], 3)
             segmentation: list[list[float]] | dict[str, list[int] | list[int]]
@@ -142,7 +157,7 @@ class CocoExporter:
             self.next_annotation_id += 1
 
     def write(self, output_dir: str | Path) -> None:
-        """Write train and val COCO JSON files."""
+        """Ghi hai file COCO JSON riêng cho train và val."""
         output_path = Path(output_dir)
         for split in ("train", "val"):
             payload = {
